@@ -1,0 +1,196 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Voice Shop — Milestone 1 (Voice In/Out)</title>
+  <style>
+    :root { --bg:#0f172a; --fg:#e2e8f0; --muted:#94a3b8; --accent:#22c55e; --warn:#ef4444; }
+    *{box-sizing:border-box}
+    body{margin:0;font-family:Inter, system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, Arial, "Apple Color Emoji", "Segoe UI Emoji";background:var(--bg);color:var(--fg)}
+    .wrap{max-width:780px;margin:40px auto;padding:24px}
+    h1{font-size:1.4rem;margin:0 0 12px}
+    .card{background:#111827aa;border:1px solid #1f2937;border-radius:16px;padding:16px;margin:12px 0;box-shadow:0 6px 20px #00000044}
+    .row{display:flex;gap:12px;align-items:center;flex-wrap:wrap}
+    .status{padding:6px 10px;border-radius:999px;font-size:.9rem;background:#0b1220;border:1px solid #1f2937;color:var(--muted)}
+    .status.online{color:var(--accent);border-color:#14532d}
+    .status.offline{color:var(--warn);border-color:#3f1d1d}
+    button{appearance:none;border:none;border-radius:999px;padding:12px 18px;font-weight:600;cursor:pointer;box-shadow:0 6px 16px #00000033}
+    .mic{background:linear-gradient(180deg,#22c55e,#16a34a);color:#06220f}
+    .mic.stop{background:linear-gradient(180deg,#ef4444,#b91c1c);color:#2b0c0c}
+    .pill{padding:4px 10px;border-radius:999px;background:#0b1220;border:1px solid #1f2937;color:var(--muted);font-size:.85rem}
+    .area{min-height:72px;padding:12px;border-radius:12px;background:#0b1220;border:1px dashed #334155;color:#d1d5db}
+    .hint{color:var(--muted);font-size:.95rem}
+    code{background:#0b1220;color:#cbd5e1;padding:2px 6px;border-radius:6px;border:1px solid #1f2937}
+    footer{margin-top:20px;color:#94a3b8;font-size:.85rem}
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>🎙️ Voice Shop — Milestone 1 (Voice In/Out)</h1>
+    <div class="card">
+      <div class="row">
+        <span id="support" class="status">Checking browser support…</span>
+        <span id="net" class="pill">Secure context: <strong id="secureVal">?</strong></span>
+      </div>
+      <p class="hint">This page lets you <strong>speak</strong> and the assistant will <strong>talk back</strong>. No installs. Works best on Chrome.</p>
+      <div class="row">
+        <button id="toggle" class="mic">Start Listening</button>
+        <span id="live" class="status offline">Mic: idle</span>
+      </div>
+    </div>
+
+    <div class="card">
+      <h3 style="margin-top:0">🗣️ You said</h3>
+      <div id="you" class="area" aria-live="polite"></div>
+      <p class="hint" style="margin-top:8px">Try: <code>hello assistant</code> · <code>stop</code> · <code>what can you do</code></p>
+    </div>
+
+    <div class="card">
+      <h3 style="margin-top:0">🔈 Assistant replied</h3>
+      <div id="bot" class="area" aria-live="polite"></div>
+    </div>
+
+    <footer>
+      Next: we'll add a tiny in-memory product list and voice search ("find blue shoes under three thousand").
+    </footer>
+  </div>
+
+  <script>
+    // -----------------------------
+    // Basic capability checks
+    // -----------------------------
+    const supportEl = document.getElementById('support');
+    const secureVal = document.getElementById('secureVal');
+    const net = document.getElementById('net');
+    const live = document.getElementById('live');
+    const you = document.getElementById('you');
+    const bot = document.getElementById('bot');
+    const toggleBtn = document.getElementById('toggle');
+
+    const hasSecure = window.isSecureContext;
+    secureVal.textContent = hasSecure ? 'yes' : 'no';
+
+    // Web Speech API (STT)
+    const SpeechRec = window.SpeechRecognition || window.webkitSpeechRecognition;
+    let rec;
+    if (SpeechRec) {
+      rec = new SpeechRec();
+      rec.lang = 'en-IN';
+      rec.interimResults = true;
+      rec.continuous = false; // single utterance for simplicity
+      supportEl.textContent = 'Mic ready on this browser';
+      supportEl.classList.add('online');
+    } else {
+      supportEl.textContent = 'SpeechRecognition not supported. Use Chrome/Edge on desktop or Android.';
+      supportEl.classList.add('offline');
+      toggleBtn.disabled = true;
+    }
+
+    // -----------------------------
+    // TTS helper
+    // -----------------------------
+    function speak(text) {
+      if (!text) return;
+      bot.textContent = text;
+      const u = new SpeechSynthesisUtterance(text);
+      u.lang = 'en-IN';
+      u.rate = 1; // comfortable speed
+      window.speechSynthesis.cancel(); // cancel anything queued
+      window.speechSynthesis.speak(u);
+    }
+
+    // -----------------------------
+    // Intent: super simple rules
+    // -----------------------------
+    function handleUtterance(raw) {
+      const text = (raw || '').toLowerCase().trim();
+      if (!text) return;
+
+      // A couple of friendly, deterministic responses
+      if (/(hello|hi|hey).*(assistant)?/.test(text)) {
+        speak("Hi! I'm your voice shopping assistant. I can listen and talk back. Try saying: what can you do.");
+        return;
+      }
+
+      if (/what can you do|help|how do you work/.test(text)) {
+        speak("Right now I can hear you and reply. Next, I'll learn to find products by color and price.");
+        return;
+      }
+
+      if (/stop|be quiet|silence/.test(text)) {
+        window.speechSynthesis.cancel();
+        bot.textContent = '⏹️ Stopped speaking.';
+        return;
+      }
+
+      // Default echo for Milestone 1
+      speak("You said: " + text);
+    }
+
+    // -----------------------------
+    // Wire up the recognizer
+    // -----------------------------
+    let listening = false;
+
+    function startListening(){
+      if (!rec) return;
+      listening = true;
+      live.textContent = 'Mic: listening…';
+      live.classList.remove('offline');
+      live.classList.add('online');
+      toggleBtn.textContent = 'Stop Listening';
+      toggleBtn.classList.add('stop');
+      you.textContent = '';
+      rec.start();
+    }
+
+    function stopListening(){
+      if (!rec) return;
+      listening = false;
+      rec.stop();
+      live.textContent = 'Mic: idle';
+      live.classList.add('offline');
+      live.classList.remove('online');
+      toggleBtn.textContent = 'Start Listening';
+      toggleBtn.classList.remove('stop');
+    }
+
+    if (rec) {
+      rec.onresult = (event) => {
+        let finalText = '';
+        for (const res of event.results) {
+          const txt = res[0].transcript;
+          if (res.isFinal) finalText += txt + ' ';
+          you.textContent = txt; // show latest chunk live
+        }
+        finalText = finalText.trim();
+        if (finalText) handleUtterance(finalText);
+      };
+
+      rec.onerror = (e) => {
+        live.textContent = 'Mic error: ' + (e.error || 'unknown');
+        live.classList.add('offline');
+        live.classList.remove('online');
+      };
+
+      rec.onend = () => {
+        // recognition ends automatically after a phrase when continuous=false
+        if (listening) {
+          // Restart to feel hands-free
+          try { rec.start(); } catch {}
+        } else {
+          stopListening();
+        }
+      };
+    }
+
+    toggleBtn.addEventListener('click', () => {
+      if (!listening) startListening(); else { listening = false; stopListening(); }
+    });
+
+    // Small UX: stop TTS when user clicks anywhere on bot area
+    bot.addEventListener('click', () => window.speechSynthesis.cancel());
+  </script>
+</body>
+</html>
