@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Voice Shop — Telecom Assistant (Milestone 2+)</title>
+  <title>Voice Shop — Telecom Assistant (Whisper-enabled)</title>
   <style>
     :root { --bg:#0f172a; --panel:#0b1220; --fg:#e2e8f0; --muted:#94a3b8; --accent:#22c55e; --warn:#ef4444; --line:#1f2937; }
     *{box-sizing:border-box}
@@ -25,21 +25,36 @@
     .caps{font-size:.75rem;color:var(--muted);text-transform:uppercase;letter-spacing:.06em}
     .row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
     .cart{position:sticky;top:16px}
-    .pill{padding:4px 8px;border-radius:999px;background:#0b1220;border:1px solid var(--line);color:var(--muted);font-size:.8rem}
+    .pill{padding:4px 8px;border-radius:999px;background:#0b1220;border:1px solid var(--line);color:#muted;font-size:.8rem}
     code{background:#0b1220;border:1px solid var(--line);padding:2px 6px;border-radius:6px;color:#cbd5e1}
+    .seg{display:inline-flex;border:1px solid var(--line);border-radius:999px;overflow:hidden}
+    .seg button{background:transparent;color:#cbd5e1;border-right:1px solid var(--line)}
+    .seg button:last-child{border-right:0}
+    .seg button.active{background:#0b1220}
   </style>
+  <!-- Whisper in-browser via Transformers.js (loads models from Hugging Face CDN) -->
+  <script src="https://cdn.jsdelivr.net/npm/@xenova/transformers@2.16.1"></script>
 </head>
 <body>
   <div class="wrap">
     <h1>🎙️ Voice Shop — Telecom Assistant</h1>
 
     <div class="card">
-      <button id="toggle" class="mic">Start Listening</button>
-      <span id="live" class="status offline">Mic: idle</span>
-      <span id="secure" class="status">Secure context: …</span>
+      <div class="row">
+        <button id="toggle" class="mic">Start Listening</button>
+        <span id="live" class="status offline">Mic: idle</span>
+        <span id="secure" class="status">Secure context: …</span>
+        <div class="seg" style="margin-left:auto">
+          <button id="modeWeb" class="active" title="Browser Web Speech API">Browser STT</button>
+          <button id="modeWhisper" title="Whisper tiny (in browser)">Whisper STT</button>
+        </div>
+      </div>
       <p style="margin:8px 0 0;color:#cbd5e1">
         Try: <code>show sd wan</code> · <code>find routers under three thousand</code> ·
         <code>find broadband 300 mbps</code> · <code>add the second to cart</code> · <code>what's in my cart</code>
+      </p>
+      <p id="modelHint" style="margin:6px 0 0;color:#94a3b8;font-size:.9rem">
+        Mode: <b>Browser STT</b> (fast, lighter). Switch to <b>Whisper STT</b> for better accuracy on telecom terms (first load takes time).
       </p>
     </div>
 
@@ -60,7 +75,7 @@
       <div style="flex:2" class="card">
         <div class="row" style="justify-content:space-between">
           <div class="caps">Results</div>
-          <div id="count" class="pill">0 items</div>
+          <div id="count" class="status">0 items</div>
         </div>
         <div id="results" class="grid"></div>
       </div>
@@ -69,7 +84,7 @@
         <div class="caps">Cart</div>
         <div id="cartList" class="area" style="min-height:120px"></div>
         <div class="row" style="margin-top:8px">
-          <div id="cartTotal" class="pill">Total: ₹0</div>
+          <div id="cartTotal" class="status">Total: ₹0</div>
           <button id="btnCheckout">Checkout</button>
         </div>
       </div>
@@ -77,12 +92,12 @@
   </div>
 
   <script>
-    // ---------- State ----------
+    // ---------------- State & DOM ----------------
     let PRODUCTS = [];
     let RESULTS = [];
     const CART = [];
+    let mode = 'web'; // 'web' | 'whisper'
 
-    // ---------- DOM ----------
     const you = document.getElementById('you');
     const bot = document.getElementById('bot');
     const live = document.getElementById('live');
@@ -93,23 +108,21 @@
     const cartList = document.getElementById('cartList');
     const cartTotal = document.getElementById('cartTotal');
     const btnCheckout = document.getElementById('btnCheckout');
+    const modeWebBtn = document.getElementById('modeWeb');
+    const modeWhisperBtn = document.getElementById('modeWhisper');
+    const modelHint = document.getElementById('modelHint');
 
     secure.textContent = 'Secure context: ' + (window.isSecureContext ? 'yes' : 'no');
 
-    // ---------- Load products.json ----------
-    async function loadProducts() {
-      try {
-        const res = await fetch('products.json', { cache: 'no-store' });
-        PRODUCTS = await res.json();
-        RESULTS = PRODUCTS.slice(0, 6);
-        renderResults(RESULTS);
-      } catch (e) {
-        speak('I could not load the product catalog.');
-        console.error(e);
-      }
+    // ---------------- Products ----------------
+    async function loadProducts(){
+      const res = await fetch('products.json', { cache: 'no-store' });
+      PRODUCTS = await res.json();
+      RESULTS = PRODUCTS.slice(0, 6);
+      renderResults(RESULTS);
     }
 
-    function renderResults(list) {
+    function renderResults(list){
       resultsEl.innerHTML = '';
       countEl.textContent = `${list.length} item${list.length!==1?'s':''}`;
       list.forEach((p, idx) => {
@@ -120,26 +133,23 @@
           <div class="caps">${p.category} · ${p.brand}${p.sku?` · ${p.sku}`:''}</div>
           <div style="margin:6px 0">
             <span class="price">₹${p.price}</span>
-            ${p.speed_mbps ? `<span class="pill">${p.speed_mbps} Mbps</span>` : ''}
-            ${p.contract ? `<span class="pill">${p.contract}</span>` : ''}
+            ${p.speed_mbps ? `<span class="status">${p.speed_mbps} Mbps</span>` : ''}
+            ${p.contract ? `<span class="status">${p.contract}</span>` : ''}
           </div>
           <ul style="margin:6px 0 10px 18px; color:#cbd5e1">
             ${(p.features||[]).slice(0,3).map(f=>`<li>${f}</li>`).join('')}
           </ul>
-          <button data-idx="${idx}" class="addBtn">Add to cart</button>
+          <button data-idx="${idx}" class="mic">Add to cart</button>
         `;
         resultsEl.appendChild(el);
       });
-      document.querySelectorAll('.addBtn').forEach(b=>{
-        b.onclick = (e)=>{
-          const i = parseInt(e.currentTarget.getAttribute('data-idx'), 10);
-          addToCart(list[i]);
-        };
+      document.querySelectorAll('[data-idx]').forEach(b=>{
+        b.onclick = (e)=> addToCart(list[parseInt(e.currentTarget.dataset.idx,10)]);
       });
     }
 
-    function renderCart() {
-      if (CART.length === 0) {
+    function renderCart(){
+      if (!CART.length){
         cartList.textContent = 'Cart is empty.';
         cartTotal.textContent = 'Total: ₹0';
         return;
@@ -149,81 +159,32 @@
       cartTotal.textContent = `Total: ₹${total}`;
     }
 
-    function addToCart(p) {
+    function addToCart(p){
       CART.push(p);
       speak(`Added ${p.title} for ₹${p.price} to your cart.`);
       renderCart();
     }
 
     btnCheckout.onclick = ()=>{
-      if (CART.length===0) { speak('Your cart is empty.'); return; }
+      if (!CART.length){ speak('Your cart is empty.'); return; }
       const total = CART.reduce((s,p)=>s+p.price,0);
       speak(`You have ${CART.length} item${CART.length>1?'s':''} for a total of ₹${total}. Ready to place the order?`);
     };
 
-    // ---------- Voice (STT/TTS) ----------
-    const SpeechRec = window.SpeechRecognition || window.webkitSpeechRecognition;
-    let rec, listening=false;
-
+    // ---------------- TTS ----------------
     function speak(text){
       bot.textContent = text;
       const u = new SpeechSynthesisUtterance(text);
-      u.lang = 'en-IN';   // try 'en-US' if it works better for you
+      u.lang = 'en-IN'; // try 'en-US' if you prefer
       window.speechSynthesis.cancel();
       window.speechSynthesis.speak(u);
     }
 
-    const DOMAIN_WORDS = ['sdwan','broadband','internet','fiber','router','switch','iot','security','firewall','sase','ztna'];
-
-    if (SpeechRec){
-      rec = new SpeechRec();
-      rec.lang = 'en-IN';
-      rec.maxAlternatives = 3;       // choose best alt for our domain
-      rec.continuous = false;
-      rec.interimResults = true;
-
-      rec.onresult = (event)=>{
-        // Show the top alt live
-        const firstAlt = event.results[0][0].transcript;
-        you.textContent = firstAlt;
-
-        if (event.results[0].isFinal){
-          // Collect alternatives
-          const alts = [];
-          for (const res of event.results){
-            for (let i=0; i<res.length; i++){
-              alts.push(res[i].transcript);
-            }
-          }
-          // Pick alt containing known domain words after normalization
-          let best = alts[0], bestScore = -1;
-          for (const a of alts){
-            const n = normalize(a);
-            const hit = DOMAIN_WORDS.some(w => n.includes(w));
-            const score = hit ? 1 : 0;
-            if (score > bestScore){ best = a; bestScore = score; }
-          }
-          handleUtterance(best);
-        }
-      };
-      rec.onend = ()=>{ if (listening) try{rec.start()}catch{} };
-    } else {
-      live.textContent = 'Mic not supported in this browser.';
-      toggleBtn.disabled = true;
-    }
-
-    toggleBtn.onclick = ()=>{
-      if (!rec) return;
-      listening = !listening;
-      if (listening){ rec.start(); live.textContent='Mic: listening…'; toggleBtn.textContent='Stop Listening'; toggleBtn.classList.add('stop'); }
-      else { rec.stop(); live.textContent='Mic: idle'; toggleBtn.textContent='Start Listening'; toggleBtn.classList.remove('stop'); }
-    };
-
-    // ---------- Parsing helpers ----------
+    // ---------------- Normalization & parsing ----------------
     function editDistance(a,b){
       const m=a.length,n=b.length; const dp=Array.from({length:m+1},()=>Array(n+1).fill(0));
-      for(let i=0;i<=m;i++) dp[i][0]=i; for(let j=0;j<=n;j++) dp[0][j]=j;
-      for(let i=1;i<=m;i++) for(let j=1;j<=n;j++){
+      for (let i=0;i<=m;i++) dp[i][0]=i; for (let j=0;j<=n;j++) dp[0][j]=j;
+      for (let i=1;i<=m;i++) for (let j=1;j<=n;j++){
         const cost=a[i-1]===b[j-1]?0:1;
         dp[i][j]=Math.min(dp[i-1][j]+1, dp[i][j-1]+1, dp[i-1][j-1]+cost);
       }
@@ -232,27 +193,17 @@
 
     function normalize(raw){
       let t = (raw || '').toLowerCase();
-
-      // Fix common SD-WAN mishears before stripping punctuation
       t = t
         .replace(/\bhd\s*ban\b/g, 'sdwan')
         .replace(/\bsd\s*one\b/g, 'sdwan')
         .replace(/\bes?tee\s*wan\b/g, 'sdwan')
         .replace(/\bsd\s*van\b/g, 'sdwan');
-
-      // Strip punctuation & collapse spaces
       t = t.replace(/[-_/.,]/g,' ').replace(/\s+/g,' ').trim();
-
-      // Join spaced letters → sdwan; handle variants
       t = t.replace(/\bs\s*d\s*w\s*a\s*n\b/g,'sdwan')
            .replace(/\bsd\s*wan\b/g,'sdwan')
            .replace(/\bsdvan\b/g,'sdwan');
-
-      // Plural → singular
       t = t.replace(/\brouters?\b/g,'router')
            .replace(/\bswitch(?:es)?\b/g,'switch');
-
-      // Last-chance fuzzy: tokens within distance ≤1 of "sdwan"
       const tokens = t.split(' ');
       for (let i=0;i<tokens.length;i++){
         if (editDistance(tokens[i], 'sdwan') <= 1) tokens[i] = 'sdwan';
@@ -260,49 +211,28 @@
       return tokens.join(' ');
     }
 
-    const NUM_WORDS = {
-      'zero':0,'one':1,'two':2,'three':3,'four':4,'five':5,'six':6,'seven':7,'eight':8,'nine':9,'ten':10,
-      'eleven':11,'twelve':12,'thirteen':13,'fourteen':14,'fifteen':15,'sixteen':16,'seventeen':17,'eighteen':18,'nineteen':19,
-      'twenty':20,'thirty':30,'forty':40,'fifty':50,'sixty':60,'seventy':70,'eighty':80,'ninety':90,
-      'hundred':100,'thousand':1000
-    };
-
+    const NUM_WORDS = {'zero':0,'one':1,'two':2,'three':3,'four':4,'five':5,'six':6,'seven':7,'eight':8,'nine':9,'ten':10,'eleven':11,'twelve':12,'thirteen':13,'fourteen':14,'fifteen':15,'sixteen':16,'seventeen':17,'eighteen':18,'nineteen':19,'twenty':20,'thirty':30,'forty':40,'fifty':50,'sixty':60,'seventy':70,'eighty':80,'ninety':90,'hundred':100,'thousand':1000};
     function wordsToNumber(phrase){
-      const tokens = phrase.split(/\s+/);
-      let total = 0, current = 0;
+      const tokens = phrase.split(/\s+/); let total = 0, current = 0;
       for (const w of tokens){
-        const n = NUM_WORDS[w];
-        if (n == null) continue;
-        if (n === 100 || n === 1000){
-          current = (current || 1) * n;
-          if (n === 1000){ total += current; current = 0; }
-        } else {
-          current += n;
-        }
+        const n = NUM_WORDS[w]; if (n == null) continue;
+        if (n === 100 || n === 1000){ current = (current || 1) * n; if (n === 1000){ total += current; current = 0; } }
+        else { current += n; }
       }
       return total + current;
     }
-
     function parsePrice(text){
-      const d = /under\s+(\d[\d,]*)/.exec(text);
-      if (d) return parseInt(d[1].replace(/,/g,''),10);
+      const d = /under\s+(\d[\d,]*)/.exec(text); if (d) return parseInt(d[1].replace(/,/g,''),10);
       const w = /under\s+([a-z\s-]+?)(?:\b(?:rupees|inr))?\b/.exec(text);
-      if (w){
-        const val = wordsToNumber(w[1].replace(/-/g,' '));
-        if (val>0) return val;
-      }
+      if (w){ const val = wordsToNumber(w[1].replace(/-/g,' ')); if (val>0) return val; }
       return null;
     }
-
     const ORDINAL_WORDS = {'first':1,'second':2,'third':3,'fourth':4,'fifth':5,'sixth':6,'seventh':7,'eighth':8,'ninth':9,'tenth':10};
     function parseOrdinal(text){
-      const m1 = /add the (\d+)(st|nd|rd|th)?/.exec(text);
-      if (m1) return parseInt(m1[1],10);
-      const m2 = /add the (first|second|third|fourth|fifth|sixth|seventh|eighth|ninth|tenth)/.exec(text);
-      if (m2) return ORDINAL_WORDS[m2[1]];
+      const m1 = /add the (\d+)(st|nd|rd|th)?/.exec(text); if (m1) return parseInt(m1[1],10);
+      const m2 = /add the (first|second|third|fourth|fifth|sixth|seventh|eighth|ninth|tenth)/.exec(text); if (m2) return ORDINAL_WORDS[m2[1]];
       return null;
     }
-
     function detectCategory(text){
       if (/\bsdwan\b/.test(text)) return 'sdwan';
       if (/\bbroadband\b|\binternet\b|\bfiber\b|\bfibre\b/.test(text)) return 'broadband';
@@ -312,47 +242,36 @@
       if (/\bsecurity\b|\bfirewall\b|\bsase\b|\bztna\b/.test(text)) return 'security';
       return null;
     }
-
     function parseSpeed(text){
-      const m = /(\d{2,4})\s*mbps/.exec(text);
-      if (m) return parseInt(m[1],10);
-      const w = /(\btwo|three|four|five|six|seven|eight|nine)\s*hundred\s*mbps/.exec(text);
-      if (w) return wordsToNumber(`${w[1]} hundred`);
+      const m = /(\d{2,4})\s*mbps/.exec(text); if (m) return parseInt(m[1],10);
+      const w = /(\btwo|three|four|five|six|seven|eight|nine)\s*hundred\s*mbps/.exec(text); if (w) return wordsToNumber(`${w[1]} hundred`);
       return null;
     }
 
-    // ---------- NLU ----------
+    // ---------------- Intent handling ----------------
     function handleUtterance(raw){
       const text = normalize(raw);
+      you.textContent = raw;
 
-      // help
       if (/what can you do|help/.test(text)){
-        speak('I can find broadband, SD-WAN, routers, switches, IoT and security products, filter by price, check speed, and add items to your cart.');
+        speak('I can find broadband, SD-WAN, routers, switches, IoT and security products, filter by price or speed, and add items to your cart.');
         return;
       }
-
-      // cart
       if (/what'?s in my cart|show cart|^cart$/.test(text)){
-        if (CART.length===0){ speak('Your cart is empty.'); return; }
+        if (!CART.length){ speak('Your cart is empty.'); return; }
         speak(`You have ${CART.length} item${CART.length>1?'s':''} totaling ₹${CART.reduce((s,p)=>s+p.price,0)}.`);
         return;
       }
-
-      // add nth
       const nth = parseOrdinal(text);
       if (nth){
         const i = nth - 1;
         if (RESULTS[i]) addToCart(RESULTS[i]); else speak('I could not find that item number on the page.');
         return;
       }
-
-      // generic add
       if (/add .* to cart|add to cart/.test(text)){
         if (RESULTS[0]) addToCart(RESULTS[0]); else speak('No results to add.');
         return;
       }
-
-      // search / filter
       if (/find|show|look for|browse/.test(text)){
         const category = detectCategory(text);
         const priceCap = parsePrice(text);
@@ -366,12 +285,7 @@
         if (brand) list = list.filter(p=> p.brand.toLowerCase()===brand);
 
         RESULTS = list;
-        if (list.length===0){
-          resultsEl.innerHTML = '';
-          countEl.textContent = '0 items';
-          speak('No matching products found.');
-          return;
-        }
+        if (!list.length){ resultsEl.innerHTML=''; countEl.textContent='0 items'; speak('No matching products found.'); return; }
         renderResults(list);
 
         const first = list[0];
@@ -382,17 +296,119 @@
         speak(`${summary}. First is ${first.title} at ₹${first.price}.`);
         return;
       }
-
-      // stop speaking
       if (/stop|be quiet|silence/.test(text)){
         window.speechSynthesis.cancel(); bot.textContent='⏹️ Stopped speaking.'; return;
       }
-
-      // default
       speak('Try: show sd-wan; find routers under three thousand; add the second to cart; what’s in my cart.');
     }
 
-    // ---------- Init ----------
+    // ---------------- Mode toggle ----------------
+    modeWebBtn.onclick = ()=>{ mode='web'; modeWebBtn.classList.add('active'); modeWhisperBtn.classList.remove('active'); modelHint.innerHTML='Mode: <b>Browser STT</b> (fast, lighter). Switch to <b>Whisper STT</b> for better accuracy on telecom terms.'; };
+    modeWhisperBtn.onclick = ()=>{ mode='whisper'; modeWhisperBtn.classList.add('active'); modeWebBtn.classList.remove('active'); modelHint.innerHTML='Mode: <b>Whisper STT</b>. First run downloads a small model; accuracy is better for things like SD-WAN.'; };
+
+    // ---------------- STT: Browser Web Speech ----------------
+    const DOMAIN_WORDS = ['sdwan','broadband','internet','fiber','router','switch','iot','security','firewall','sase','ztna'];
+    const SpeechRec = window.SpeechRecognition || window.webkitSpeechRecognition;
+    let rec, listening=false, whisperReady=false;
+
+    if (SpeechRec){
+      rec = new SpeechRec();
+      rec.lang = 'en-IN';
+      rec.maxAlternatives = 3;
+      rec.continuous = false;
+      rec.interimResults = true;
+
+      rec.onresult = (event)=>{
+        const firstAlt = event.results[0][0].transcript;
+        you.textContent = firstAlt;
+        if (event.results[0].isFinal){
+          const alts = [];
+          for (const res of event.results){
+            for (let i=0;i<res.length;i++){ alts.push(res[i].transcript); }
+          }
+          let best = alts[0], bestScore = -1;
+          for (const a of alts){
+            const n = normalize(a);
+            const hit = DOMAIN_WORDS.some(w => n.includes(w));
+            const score = hit ? 1 : 0;
+            if (score > bestScore){ best = a; bestScore = score; }
+          }
+          handleUtterance(best);
+        }
+      };
+      rec.onend = ()=>{ if (listening && mode==='web') try{rec.start()}catch{}; };
+    } else {
+      live.textContent = 'Mic not supported in this browser.';
+      toggleBtn.disabled = true;
+    }
+
+    // ---------------- STT: Whisper (Transformers.js) ----------------
+    // Uses MediaRecorder to capture short clips, then transcribes with Xenova/whisper-tiny.en
+    let mediaStream, mediaRecorder, chunks=[];
+    let asr; // pipeline
+    async function ensureWhisper(){
+      if (asr) return;
+      speak('Loading Whisper model, this may take a moment on first run.');
+      asr = await window.transformers.pipeline('automatic-speech-recognition', 'Xenova/whisper-tiny.en');
+      whisperReady = true;
+      speak('Whisper model ready.');
+    }
+    async function startWhisper(){
+      await ensureWhisper();
+      mediaStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      chunks = [];
+      mediaRecorder = new MediaRecorder(mediaStream, { mimeType: 'audio/webm' });
+      mediaRecorder.ondataavailable = (e)=>{ if (e.data.size>0) chunks.push(e.data); };
+      mediaRecorder.onstop = async ()=>{
+        const blob = new Blob(chunks, { type: 'audio/webm' });
+        const arrayBuffer = await blob.arrayBuffer();
+        const audio = new Float32Array(arrayBuffer); // fallback if decode fails
+        try{
+          // Transformers.js can take a Blob/URL directly
+          const result = await asr(blob, { chunk_length_s: 30, return_timestamps: false });
+          const text = (result?.text || '').trim();
+          you.textContent = text;
+          handleUtterance(text);
+        } catch(err){
+          console.error(err);
+          speak('Sorry, I could not transcribe that. Please try again.');
+        }
+      };
+      mediaRecorder.start();
+    }
+    function stopWhisper(){
+      try{ mediaRecorder && mediaRecorder.stop(); }catch{}
+      try{ mediaStream && mediaStream.getTracks().forEach(t=>t.stop()); }catch{}
+    }
+
+    // ---------------- Button wiring ----------------
+    toggleBtn.onclick = async ()=>{
+      if (!listening){
+        listening = true;
+        toggleBtn.textContent = 'Stop Listening';
+        toggleBtn.classList.add('stop');
+        live.textContent = 'Mic: listening…'; live.classList.remove('offline'); live.classList.add('online');
+
+        if (mode === 'web'){
+          rec && rec.start();
+        } else {
+          await startWhisper();
+        }
+      } else {
+        listening = false;
+        toggleBtn.textContent = 'Start Listening';
+        toggleBtn.classList.remove('stop');
+        live.textContent = 'Mic: idle'; live.classList.add('offline'); live.classList.remove('online');
+
+        if (mode === 'web'){
+          rec && rec.stop();
+        } else {
+          stopWhisper();
+        }
+      }
+    };
+
+    // ---------------- Init ----------------
     loadProducts();
   </script>
 </body>
