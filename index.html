@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Voice Shop — Telecom Assistant (Whisper-enabled)</title>
+  <title>Voice Shop — Telecom Assistant (Neural TTS)</title>
   <style>
     :root { --bg:#0f172a; --panel:#0b1220; --fg:#e2e8f0; --muted:#94a3b8; --accent:#22c55e; --warn:#ef4444; --line:#1f2937; }
     *{box-sizing:border-box}
@@ -31,12 +31,68 @@
     .seg button:last-child{border-right:0}
     .seg button.active{background:#0b1220}
   </style>
-  <!-- In-browser Whisper via Transformers.js -->
+
+  <!-- Transformers.js for in-browser Whisper (STT) -->
   <script src="https://cdn.jsdelivr.net/npm/@xenova/transformers@2.16.1"></script>
+  <!-- Kokoro.js via ESM CDN (neural TTS in-browser) -->
+  <script type="module" id="kokoro-loader">
+    import { KokoroTTS } from "https://cdn.jsdelivr.net/npm/kokoro-js@1.2.1/+esm";
+
+    // Expose a tiny bridge on window so our non-module code can call it.
+    const MODEL_ID = "onnx-community/Kokoro-82M-v1.0-ONNX";   // official ONNX export
+    const DTYPE    = "q8";                                    // fp32/fp16/q8/q4/q4f16
+    const VOICE_ID = "af_sky";                                // try: af_nicole, af_sarah, am_miki, etc.
+
+    const state = {
+      tts: null,
+      ready: false,
+      loading: false,
+    };
+
+    async function ensureKokoro() {
+      if (state.ready || state.loading) return;
+      state.loading = true;
+      // Notify UI (if present)
+      window.dispatchEvent(new CustomEvent("kokoro-status", { detail: { status: "loading" }}));
+      try {
+        state.tts = await KokoroTTS.from_pretrained(MODEL_ID, { dtype: DTYPE });
+        state.ready = true;
+        window.dispatchEvent(new CustomEvent("kokoro-status", { detail: { status: "ready" }}));
+      } catch (e) {
+        console.error(e);
+        window.dispatchEvent(new CustomEvent("kokoro-status", { detail: { status: "error", error: String(e) }}));
+      } finally {
+        state.loading = false;
+      }
+    }
+
+    async function speakKokoro(text) {
+      try {
+        await ensureKokoro();
+        if (!state.ready) throw new Error("Kokoro not ready");
+        // Generate WAV bytes and play
+        const audio = await state.tts.generate(text, { voice: VOICE_ID });
+        const wavBuffer = audio.toWav(); // ArrayBuffer with 24 kHz mono WAV
+        const blob = new Blob([wavBuffer], { type: "audio/wav" });
+        const url = URL.createObjectURL(blob);
+        const a = new Audio(url);
+        a.playbackRate = 1.0;
+        a.onended = () => URL.revokeObjectURL(url);
+        await a.play();
+        return true;
+      } catch (err) {
+        console.warn("Kokoro TTS fallback:", err);
+        return false;
+      }
+    }
+
+    // Expose to window for non-module script.
+    window.__kokoro = { ensureKokoro, speakKokoro, status: state };
+  </script>
 </head>
 <body>
   <div class="wrap">
-    <h1>🎙️ Voice Shop — Telecom Assistant</h1>
+    <h1>🎙️ Voice Shop — Telecom Assistant <span id="kokoroBadge" class="status">TTS: browser voice</span></h1>
 
     <div class="card">
       <div class="row">
@@ -45,7 +101,7 @@
         <span id="secure" class="status">Secure context: …</span>
         <div class="seg">
           <button id="modeWeb" class="active" title="Browser Web Speech API">Browser STT</button>
-          <button id="modeWhisper" title="Whisper tiny (in browser)">Whisper STT</button>
+          <button id="modeWhisper" title="Whisper STT (better accuracy)">Whisper STT</button>
         </div>
       </div>
       <p style="margin:8px 0 0;color:#cbd5e1">
@@ -53,7 +109,7 @@
         <code>find broadband 300 mbps</code> · <code>add sd wan pro to cart</code> · <code>add the second to cart</code> · <code>what's in my cart</code>
       </p>
       <p id="modelHint" style="margin:6px 0 0;color:#94a3b8;font-size:.9rem">
-        Mode: <b>Browser STT</b> (fast). Switch to <b>Whisper STT</b> for better accuracy on telecom terms (first load takes time).
+        Mode: <b>Browser STT</b> (fast). Switch to <b>Whisper STT</b> for better accuracy on telecom terms.
       </p>
     </div>
 
@@ -91,6 +147,15 @@
   </div>
 
   <script>
+    // ---------------- Kokoro status badge ----------------
+    const kokoroBadge = document.getElementById('kokoroBadge');
+    window.addEventListener('kokoro-status', (e)=>{
+      const s = e.detail?.status;
+      if (s === 'loading') { kokoroBadge.textContent = 'TTS: loading neural voice…'; kokoroBadge.classList.add('online'); }
+      else if (s === 'ready') { kokoroBadge.textContent = 'TTS: neural (Kokoro)'; kokoroBadge.classList.add('online'); }
+      else if (s === 'error') { kokoroBadge.textContent = 'TTS: browser voice (fallback)'; kokoroBadge.classList.remove('online'); }
+    });
+
     // ---------------- State & DOM ----------------
     let PRODUCTS = [];
     let RESULTS = [];
@@ -170,16 +235,35 @@
       speak(`You have ${CART.length} item${CART.length>1?'s':''} for a total of ₹${total}. Ready to place the order?`);
     };
 
-    // ---------------- TTS ----------------
-    function speak(text){
+    // ---------------- TTS (Neural first, fallback to browser) ----------------
+    function pickVoice() {
+      const VOICES = speechSynthesis.getVoices();
+      return VOICES.find(v => /Google/.test(v.name) && /en-/.test(v.lang))
+          || VOICES.find(v => /en-/.test(v.lang))
+          || null;
+    }
+
+    async function speak(text){
       bot.textContent = text;
+
+      // Try neural TTS (Kokoro) first
+      if (window.__kokoro && typeof window.__kokoro.speakKokoro === 'function'){
+        const ok = await window.__kokoro.speakKokoro(text);
+        if (ok) return;
+      }
+
+      // Fallback: browser voice
       const u = new SpeechSynthesisUtterance(text);
-      u.lang = 'en-IN'; // try 'en-US' if you prefer
+      const v = pickVoice();
+      if (v) u.voice = v;
+      u.lang = v?.lang || 'en-US';
+      u.rate = 1.02;
+      u.pitch = 1.05;
       window.speechSynthesis.cancel();
       window.speechSynthesis.speak(u);
     }
 
-    // ---------------- Normalization & parsing ----------------
+    // ---------------- Normalization & parsing (unchanged core) ----------------
     function editDistance(a,b){
       const m=a.length,n=b.length; const dp=Array.from({length:m+1},()=>Array(n+1).fill(0));
       for (let i=0;i<=m;i++) dp[i][0]=i; for (let j=0;j<=n;j++) dp[0][j]=j;
@@ -192,7 +276,6 @@
 
     function normalize(raw){
       let t = (raw || '').toLowerCase();
-      // fix SD-WAN mishears
       t = t
         .replace(/\bhd\s*ban\b/g, 'sdwan')
         .replace(/\bsd\s*one\b/g, 'sdwan')
@@ -251,14 +334,35 @@
     // --------- Fuzzy product match for "add X to cart" ---------
     function tokenize(s){ return s.split(/\s+/).filter(Boolean); }
     function bestMatchProductFromText(text, list){
-      const ntext = normalize(text);
-      const tokens = tokenize(ntext);
-      let best = null, bestScore = -1;
+      const n = normalize(text);
+      const tokens = tokenize(n);
 
+      const hasPro   = /\bpro\b|\bprofessional\b/.test(n);
+      const hasLite  = /\blite\b|\blight\b/.test(n);
+      const hasPlus  = /\bplus\b|\bmax\b/.test(n);
+
+      // direct variant pick
+      const tagged = list.filter(p=>{
+        const title = (p.title||'').toLowerCase();
+        const sku   = (p.sku||'').toLowerCase();
+        const tHasPro  = /\bpro\b/.test(title)  || /(^|[^a-z])p($|[^a-z])/.test(sku)   || /-p\b/.test(sku);
+        const tHasLite = /\blite\b/.test(title) || /(^|[^a-z])l($|[^a-z])/.test(sku)   || /-l\b/.test(sku);
+        const tHasPlus = /\bplus\b|\bmax\b/.test(title);
+        return (hasPro  && tHasPro)  || (hasLite && tHasLite) || (hasPlus && tHasPlus);
+      });
+      if (tagged.length === 1) return tagged[0];
+      if (tagged.length > 1) {
+        if (hasPro)  return tagged.find(p=>/\bpro\b/.test((p.title||'').toLowerCase()))  || tagged[0];
+        if (hasLite) return tagged.find(p=>/\blite\b/.test((p.title||'').toLowerCase())) || tagged[0];
+        return tagged[0];
+      }
+
+      // fuzzy fallback
+      let best = null, bestScore = -1;
       for (const p of list){
-        const title = (p.title || '').toLowerCase();
-        const brand = (p.brand || '').toLowerCase();
-        const sku = (p.sku || '').toLowerCase();
+        const title = (p.title||'').toLowerCase();
+        const brand = (p.brand||'').toLowerCase();
+        const sku   = (p.sku||'').toLowerCase();
 
         const words = new Set(
           title.replace(/[^a-z0-9 ]/g,' ').split(/\s+/)
@@ -268,28 +372,19 @@
         );
 
         let score = 0;
-        // 1) Exact SKU mention
-        if (sku && ntext.includes(sku)) score += 10;
-
-        // 2) Tags like pro/lite/ax5400/24p etc.
-        const keyTags = ['pro','lite','plus','max','ax1800','ax5400','24p','8p'];
-        for (const tag of keyTags){
-          if (ntext.includes(tag) && title.includes(tag)) score += 5;
-        }
-
-        // 3) Token overlap
+        if (sku && n.includes(sku)) score += 20;
         for (const t of tokens){ if (words.has(t)) score += 2; }
+        if (hasPro  && /\bpro\b/.test(title))  score += 10;
+        if (hasLite && /\blite\b/.test(title)) score += 10;
+        if (hasPro  && /\blite\b/.test(title)) score -= 12;
+        if (hasLite && /\bpro\b/.test(title))  score -= 12;
 
-        // 4) Small edit-distance bonus
-        const dist = editDistance(
-          title.replace(/\s+/g,''),
-          ntext.replace(/\s+/g,'')
-        );
-        if (dist <= 2) score += 3;
+        const dist = editDistance(title.replace(/\s+/g,''), n.replace(/\s+/g,''));
+        score += Math.max(0, 5 - dist);
 
         if (score > bestScore){ best = p; bestScore = score; }
       }
-      return bestScore >= 4 ? best : null;
+      return best;
     }
 
     // ---------------- Intent handling ----------------
@@ -307,14 +402,13 @@
         return;
       }
 
-      // add Nth
       const nth = parseOrdinal(text);
       if (nth){
         const i = nth - 1;
         if (RESULTS[i]) { addToCart(RESULTS[i]); return; }
       }
 
-      // add by name/sku (fuzzy), fallback to first
+      // add by name/sku
       if (/add .* to cart|add to cart/.test(text)){
         const pmatch = bestMatchProductFromText(text, RESULTS.length ? RESULTS : PRODUCTS);
         if (pmatch){ addToCart(pmatch); return; }
@@ -400,7 +494,7 @@
     async function ensureWhisper(){
       if (asr) return;
       speak('Loading Whisper model, this may take a moment on first run.');
-      asr = await window.transformers.pipeline('automatic-speech-recognition', 'Xenova/whisper-tiny.en');
+      asr = await window.transformers.pipeline('automatic-speech-recognition', 'Xenova/whisper-base.en', { dtype: 'fp16' });
       whisperReady = true;
       speak('Whisper model ready.');
     }
@@ -458,6 +552,9 @@
 
     // ---------------- Init ----------------
     loadProducts();
+
+    // Kick asynchronous Warm-up of Kokoro (so first reply is neural)
+    (async ()=>{ try{ if (window.__kokoro) await window.__kokoro.ensureKokoro(); }catch{} })();
   </script>
 </body>
 </html>
