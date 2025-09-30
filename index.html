@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Voice Shop — Milestone 2 (Telecom)</title>
+  <title>Voice Shop — Telecom Assistant (Milestone 2+)</title>
   <style>
     :root { --bg:#0f172a; --panel:#0b1220; --fg:#e2e8f0; --muted:#94a3b8; --accent:#22c55e; --warn:#ef4444; --line:#1f2937; }
     *{box-sizing:border-box}
@@ -168,26 +168,43 @@
     function speak(text){
       bot.textContent = text;
       const u = new SpeechSynthesisUtterance(text);
-      u.lang = 'en-IN';
+      u.lang = 'en-IN';   // try 'en-US' if it works better for you
       window.speechSynthesis.cancel();
       window.speechSynthesis.speak(u);
     }
 
+    const DOMAIN_WORDS = ['sdwan','broadband','internet','fiber','router','switch','iot','security','firewall','sase','ztna'];
+
     if (SpeechRec){
       rec = new SpeechRec();
       rec.lang = 'en-IN';
+      rec.maxAlternatives = 3;       // choose best alt for our domain
       rec.continuous = false;
       rec.interimResults = true;
 
       rec.onresult = (event)=>{
-        let final = '';
-        for (const r of event.results){
-          const t = r[0].transcript;
-          you.textContent = t; // live
-          if (r.isFinal) final += t + ' ';
+        // Show the top alt live
+        const firstAlt = event.results[0][0].transcript;
+        you.textContent = firstAlt;
+
+        if (event.results[0].isFinal){
+          // Collect alternatives
+          const alts = [];
+          for (const res of event.results){
+            for (let i=0; i<res.length; i++){
+              alts.push(res[i].transcript);
+            }
+          }
+          // Pick alt containing known domain words after normalization
+          let best = alts[0], bestScore = -1;
+          for (const a of alts){
+            const n = normalize(a);
+            const hit = DOMAIN_WORDS.some(w => n.includes(w));
+            const score = hit ? 1 : 0;
+            if (score > bestScore){ best = a; bestScore = score; }
+          }
+          handleUtterance(best);
         }
-        final = final.trim();
-        if (final) handleUtterance(final);
       };
       rec.onend = ()=>{ if (listening) try{rec.start()}catch{} };
     } else {
@@ -202,18 +219,45 @@
       else { rec.stop(); live.textContent='Mic: idle'; toggleBtn.textContent='Start Listening'; toggleBtn.classList.remove('stop'); }
     };
 
-    // ---------- Helpers for parsing ----------
+    // ---------- Parsing helpers ----------
+    function editDistance(a,b){
+      const m=a.length,n=b.length; const dp=Array.from({length:m+1},()=>Array(n+1).fill(0));
+      for(let i=0;i<=m;i++) dp[i][0]=i; for(let j=0;j<=n;j++) dp[0][j]=j;
+      for(let i=1;i<=m;i++) for(let j=1;j<=n;j++){
+        const cost=a[i-1]===b[j-1]?0:1;
+        dp[i][j]=Math.min(dp[i-1][j]+1, dp[i][j-1]+1, dp[i-1][j-1]+cost);
+      }
+      return dp[m][n];
+    }
+
     function normalize(raw){
       let t = (raw || '').toLowerCase();
-      t = t.replace(/[-_/.,]/g,' ');
-      // unify sd-wan variants: "sd wan", "s d wan", "sdwan", "sdvan"
-      t = t.replace(/\bs\s*d\s*w\s*a\s*n\b/g, 'sdwan')
+
+      // Fix common SD-WAN mishears before stripping punctuation
+      t = t
+        .replace(/\bhd\s*ban\b/g, 'sdwan')
+        .replace(/\bsd\s*one\b/g, 'sdwan')
+        .replace(/\bes?tee\s*wan\b/g, 'sdwan')
+        .replace(/\bsd\s*van\b/g, 'sdwan');
+
+      // Strip punctuation & collapse spaces
+      t = t.replace(/[-_/.,]/g,' ').replace(/\s+/g,' ').trim();
+
+      // Join spaced letters → sdwan; handle variants
+      t = t.replace(/\bs\s*d\s*w\s*a\s*n\b/g,'sdwan')
            .replace(/\bsd\s*wan\b/g,'sdwan')
            .replace(/\bsdvan\b/g,'sdwan');
-      // plurals
+
+      // Plural → singular
       t = t.replace(/\brouters?\b/g,'router')
-           .replace(/\bswitch(es)?\b/g,'switch');
-      return t.replace(/\s+/g,' ').trim();
+           .replace(/\bswitch(?:es)?\b/g,'switch');
+
+      // Last-chance fuzzy: tokens within distance ≤1 of "sdwan"
+      const tokens = t.split(' ');
+      for (let i=0;i<tokens.length;i++){
+        if (editDistance(tokens[i], 'sdwan') <= 1) tokens[i] = 'sdwan';
+      }
+      return tokens.join(' ');
     }
 
     const NUM_WORDS = {
@@ -261,11 +305,11 @@
 
     function detectCategory(text){
       if (/\bsdwan\b/.test(text)) return 'sdwan';
-      if (/\bbroadband|fiber|fibre|internet\b/.test(text)) return 'broadband';
+      if (/\bbroadband\b|\binternet\b|\bfiber\b|\bfibre\b/.test(text)) return 'broadband';
       if (/\brouter\b/.test(text)) return 'router';
       if (/\bswitch\b/.test(text)) return 'switch';
-      if (/\biot\b/.test(text)) return 'iot';
-      if (/\bsecurity|firewall|sase|ztna\b/.test(text)) return 'security';
+      if (/\biot\b|\bsensor\b|\bcamera\b/.test(text)) return 'iot';
+      if (/\bsecurity\b|\bfirewall\b|\bsase\b|\bztna\b/.test(text)) return 'security';
       return null;
     }
 
@@ -277,7 +321,7 @@
       return null;
     }
 
-    // ---------- NLU (improved) ----------
+    // ---------- NLU ----------
     function handleUtterance(raw){
       const text = normalize(raw);
 
@@ -287,14 +331,14 @@
         return;
       }
 
-      // show cart
+      // cart
       if (/what'?s in my cart|show cart|^cart$/.test(text)){
         if (CART.length===0){ speak('Your cart is empty.'); return; }
         speak(`You have ${CART.length} item${CART.length>1?'s':''} totaling ₹${CART.reduce((s,p)=>s+p.price,0)}.`);
         return;
       }
 
-      // add by ordinal ("add the second/2nd/first")
+      // add nth
       const nth = parseOrdinal(text);
       if (nth){
         const i = nth - 1;
@@ -302,7 +346,7 @@
         return;
       }
 
-      // generic "add to cart"
+      // generic add
       if (/add .* to cart|add to cart/.test(text)){
         if (RESULTS[0]) addToCart(RESULTS[0]); else speak('No results to add.');
         return;
