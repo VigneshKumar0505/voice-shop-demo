@@ -1,9 +1,10 @@
 <!doctype html>
 <html lang="en">
 <head>
+  <!-- SECTION: META & THEME -------------------------------------------------->
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Voice Shop — Telecom Assistant (Neural TTS)</title>
+  <title>Voice Shop — Telecom Assistant (Neural TTS + Whisper STT)</title>
   <style>
     :root { --bg:#0f172a; --panel:#0b1220; --fg:#e2e8f0; --muted:#94a3b8; --accent:#22c55e; --warn:#ef4444; --line:#1f2937; }
     *{box-sizing:border-box}
@@ -22,7 +23,7 @@
     .prod{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:12px}
     .title{font-weight:700}
     .price{color:#cbd5e1;margin-left:6px}
-    .caps{font-size:.75rem;color:var(--muted);text-transform:uppercase;letter-spacing:.06em}
+    .caps{font-size:.75rem;color:#94a3b8;text-transform:uppercase;letter-spacing:.06em}
     .row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
     .cart{position:sticky;top:16px}
     code{background:#0b1220;border:1px solid var(--line);padding:2px 6px;border-radius:6px;color:#cbd5e1}
@@ -32,67 +33,64 @@
     .seg button.active{background:#0b1220}
   </style>
 
-  <!-- Transformers.js for in-browser Whisper (STT) -->
+  <!-- SECTION: LIBS (Transformers.js for Whisper) ----------------------------->
   <script src="https://cdn.jsdelivr.net/npm/@xenova/transformers@2.16.1"></script>
-  <!-- Kokoro.js via ESM CDN (neural TTS in-browser) -->
+
+  <!-- SECTION: TTS (Neural – Kokoro) – ESM LOADER ---------------------------->
+  <!-- Keep this as a separate <script type="module"> so you can swap models easily -->
   <script type="module" id="kokoro-loader">
     import { KokoroTTS } from "https://cdn.jsdelivr.net/npm/kokoro-js@1.2.1/+esm";
 
-    // Expose a tiny bridge on window so our non-module code can call it.
-    const MODEL_ID = "onnx-community/Kokoro-82M-v1.0-ONNX";   // official ONNX export
-    const DTYPE    = "q8";                                    // fp32/fp16/q8/q4/q4f16
-    const VOICE_ID = "af_sky";                                // try: af_nicole, af_sarah, am_miki, etc.
+    // === CONFIG you may tweak later =========================================
+    const MODEL_ID = "onnx-community/Kokoro-82M-v1.0-ONNX"; // ONNX model
+    const DTYPE    = "q8";                                   // fp32/fp16/q8/q4/q4f16
+    const VOICE_ID = "af_sky";                               // other examples: af_nicole, am_miki
+    // =========================================================================
 
-    const state = {
-      tts: null,
-      ready: false,
-      loading: false,
-    };
+    const state = { tts:null, ready:false, loading:false };
 
     async function ensureKokoro() {
       if (state.ready || state.loading) return;
       state.loading = true;
-      // Notify UI (if present)
-      window.dispatchEvent(new CustomEvent("kokoro-status", { detail: { status: "loading" }}));
+      window.dispatchEvent(new CustomEvent("kokoro-status",{detail:{status:"loading"}}));
       try {
         state.tts = await KokoroTTS.from_pretrained(MODEL_ID, { dtype: DTYPE });
         state.ready = true;
-        window.dispatchEvent(new CustomEvent("kokoro-status", { detail: { status: "ready" }}));
+        window.dispatchEvent(new CustomEvent("kokoro-status",{detail:{status:"ready"}}));
       } catch (e) {
         console.error(e);
-        window.dispatchEvent(new CustomEvent("kokoro-status", { detail: { status: "error", error: String(e) }}));
-      } finally {
-        state.loading = false;
-      }
+        window.dispatchEvent(new CustomEvent("kokoro-status",{detail:{status:"error",error:String(e)}}));
+      } finally { state.loading = false; }
     }
 
     async function speakKokoro(text) {
       try {
         await ensureKokoro();
         if (!state.ready) throw new Error("Kokoro not ready");
-        // Generate WAV bytes and play
         const audio = await state.tts.generate(text, { voice: VOICE_ID });
-        const wavBuffer = audio.toWav(); // ArrayBuffer with 24 kHz mono WAV
-        const blob = new Blob([wavBuffer], { type: "audio/wav" });
-        const url = URL.createObjectURL(blob);
+        const wavBuffer = audio.toWav(); // ArrayBuffer (24 kHz, mono)
+        const url = URL.createObjectURL(new Blob([wavBuffer],{type:"audio/wav"}));
         const a = new Audio(url);
-        a.playbackRate = 1.0;
         a.onended = () => URL.revokeObjectURL(url);
         await a.play();
         return true;
       } catch (err) {
-        console.warn("Kokoro TTS fallback:", err);
+        console.warn("Kokoro fallback:", err);
         return false;
       }
     }
 
-    // Expose to window for non-module script.
-    window.__kokoro = { ensureKokoro, speakKokoro, status: state };
+    // Expose small bridge for non-module scripts
+    window.__kokoro = { ensureKokoro, speakKokoro, state };
   </script>
 </head>
 <body>
+  <!-- SECTION: HEADER / CONTROLS --------------------------------------------->
   <div class="wrap">
-    <h1>🎙️ Voice Shop — Telecom Assistant <span id="kokoroBadge" class="status">TTS: browser voice</span></h1>
+    <h1>🎙️ Voice Shop — Telecom Assistant
+      <span id="kokoroBadge" class="status">TTS: browser voice</span>
+      <span id="whisperBadge" class="status">STT: Browser</span>
+    </h1>
 
     <div class="card">
       <div class="row">
@@ -113,6 +111,7 @@
       </p>
     </div>
 
+    <!-- SECTION: CONSOLE (USER / ASSISTANT) ---------------------------------->
     <div class="card">
       <div class="row">
         <div style="flex:1">
@@ -126,6 +125,7 @@
       </div>
     </div>
 
+    <!-- SECTION: RESULTS + CART --------------------------------------------->
     <div class="row" style="align-items:flex-start">
       <div style="flex:2" class="card">
         <div class="row" style="justify-content:space-between">
@@ -146,17 +146,9 @@
     </div>
   </div>
 
+  <!-- SECTION: APP SCRIPT (EVERYTHING BELOW IS SWAPPABLE BY SECTION) -------->
   <script>
-    // ---------------- Kokoro status badge ----------------
-    const kokoroBadge = document.getElementById('kokoroBadge');
-    window.addEventListener('kokoro-status', (e)=>{
-      const s = e.detail?.status;
-      if (s === 'loading') { kokoroBadge.textContent = 'TTS: loading neural voice…'; kokoroBadge.classList.add('online'); }
-      else if (s === 'ready') { kokoroBadge.textContent = 'TTS: neural (Kokoro)'; kokoroBadge.classList.add('online'); }
-      else if (s === 'error') { kokoroBadge.textContent = 'TTS: browser voice (fallback)'; kokoroBadge.classList.remove('online'); }
-    });
-
-    // ---------------- State & DOM ----------------
+    // ===== SECTION: GLOBAL STATE & DOM HOOKS =================================
     let PRODUCTS = [];
     let RESULTS = [];
     const CART = [];
@@ -175,10 +167,29 @@
     const modeWebBtn = document.getElementById('modeWeb');
     const modeWhisperBtn = document.getElementById('modeWhisper');
     const modelHint = document.getElementById('modelHint');
+    const kokoroBadge = document.getElementById('kokoroBadge');
+    const whisperBadge = document.getElementById('whisperBadge');
 
     secure.textContent = 'Secure context: ' + (window.isSecureContext ? 'yes' : 'no');
 
-    // ---------------- Products ----------------
+    // ===== SECTION: BADGE HELPERS (UI feedback) ==============================
+    function setKokoroBadge(text, online=false){
+      kokoroBadge.textContent = text;
+      kokoroBadge.classList.toggle('online', online);
+    }
+    function setWhisperBadge(text, online=false){
+      whisperBadge.textContent = text;
+      whisperBadge.classList.toggle('online', online);
+    }
+    // React to Kokoro loader events
+    window.addEventListener('kokoro-status', (e)=>{
+      const s = e.detail?.status;
+      if (s === 'loading') setKokoroBadge('TTS: loading neural voice…', true);
+      else if (s === 'ready') setKokoroBadge('TTS: neural (Kokoro)', true);
+      else setKokoroBadge('TTS: browser voice', false);
+    });
+
+    // ===== SECTION: PRODUCTS (fetch + render) ================================
     async function loadProducts(){
       const res = await fetch('products.json', { cache: 'no-store' });
       PRODUCTS = await res.json();
@@ -212,6 +223,7 @@
       });
     }
 
+    // ===== SECTION: CART (state + render) ====================================
     function renderCart(){
       if (!CART.length){
         cartList.textContent = 'Cart is empty.';
@@ -222,58 +234,51 @@
       const total = CART.reduce((s,p)=>s+p.price,0);
       cartTotal.textContent = `Total: ₹${total}`;
     }
-
     function addToCart(p){
       CART.push(p);
       speak(`Added ${p.title} for ₹${p.price} to your cart.`);
       renderCart();
     }
-
     btnCheckout.onclick = ()=>{
       if (!CART.length){ speak('Your cart is empty.'); return; }
       const total = CART.reduce((s,p)=>s+p.price,0);
       speak(`You have ${CART.length} item${CART.length>1?'s':''} for a total of ₹${total}. Ready to place the order?`);
     };
 
-    // ---------------- TTS (Neural first, fallback to browser) ----------------
+    // ===== SECTION: TTS (Neural-first, browser fallback) =====================
     function pickVoice() {
       const VOICES = speechSynthesis.getVoices();
       return VOICES.find(v => /Google/.test(v.name) && /en-/.test(v.lang))
           || VOICES.find(v => /en-/.test(v.lang))
           || null;
     }
-
     async function speak(text){
       bot.textContent = text;
-
-      // Try neural TTS (Kokoro) first
-      if (window.__kokoro && typeof window.__kokoro.speakKokoro === 'function'){
+      // try neural TTS first
+      if (window.__kokoro?.speakKokoro){
         const ok = await window.__kokoro.speakKokoro(text);
         if (ok) return;
       }
-
-      // Fallback: browser voice
+      // fallback to system voice
       const u = new SpeechSynthesisUtterance(text);
       const v = pickVoice();
       if (v) u.voice = v;
       u.lang = v?.lang || 'en-US';
-      u.rate = 1.02;
-      u.pitch = 1.05;
-      window.speechSynthesis.cancel();
-      window.speechSynthesis.speak(u);
+      u.rate = 1.02; u.pitch = 1.05;
+      speechSynthesis.cancel(); speechSynthesis.speak(u);
     }
+    // Warm up Kokoro once (optional)
+    (async ()=>{ try{ if (window.__kokoro) await window.__kokoro.ensureKokoro(); }catch{} })();
 
-    // ---------------- Normalization & parsing (unchanged core) ----------------
+    // ===== SECTION: NLU HELPERS (normalize, numbers, fuzzy match) ============
     function editDistance(a,b){
       const m=a.length,n=b.length; const dp=Array.from({length:m+1},()=>Array(n+1).fill(0));
       for (let i=0;i<=m;i++) dp[i][0]=i; for (let j=0;j<=n;j++) dp[0][j]=j;
       for (let i=1;i<=m;i++) for (let j=1;j<=n;j++){
         const cost=a[i-1]===b[j-1]?0:1;
         dp[i][j]=Math.min(dp[i-1][j]+1, dp[i][j-1]+1, dp[i-1][j-1]+cost);
-      }
-      return dp[m][n];
+      } return dp[m][n];
     }
-
     function normalize(raw){
       let t = (raw || '').toLowerCase();
       t = t
@@ -285,29 +290,26 @@
       t = t.replace(/\bs\s*d\s*w\s*a\s*n\b/g,'sdwan')
            .replace(/\bsd\s*wan\b/g,'sdwan')
            .replace(/\bsdvan\b/g,'sdwan');
-      t = t.replace(/\brouters?\b/g,'router')
-           .replace(/\bswitch(?:es)?\b/g,'switch');
+      t = t.replace(/\brouters?\b/g,'router').replace(/\bswitch(?:es)?\b/g,'switch');
       const tokens = t.split(' ');
       for (let i=0;i<tokens.length;i++){
         if (editDistance(tokens[i], 'sdwan') <= 1) tokens[i] = 'sdwan';
       }
       return tokens.join(' ');
     }
-
     const NUM_WORDS = {'zero':0,'one':1,'two':2,'three':3,'four':4,'five':5,'six':6,'seven':7,'eight':8,'nine':9,'ten':10,'eleven':11,'twelve':12,'thirteen':13,'fourteen':14,'fifteen':15,'sixteen':16,'seventeen':17,'eighteen':18,'nineteen':19,'twenty':20,'thirty':30,'forty':40,'fifty':50,'sixty':60,'seventy':70,'eighty':80,'ninety':90,'hundred':100,'thousand':1000};
     function wordsToNumber(phrase){
-      const tokens = phrase.split(/\s+/); let total = 0, current = 0;
+      const tokens = phrase.split(/\s+/); let total=0,current=0;
       for (const w of tokens){
-        const n = NUM_WORDS[w]; if (n == null) continue;
-        if (n === 100 || n === 1000){ current = (current || 1) * n; if (n === 1000){ total += current; current = 0; } }
-        else { current += n; }
-      }
-      return total + current;
+        const n = NUM_WORDS[w]; if (n==null) continue;
+        if (n===100 || n===1000){ current=(current||1)*n; if (n===1000){ total+=current; current=0; } }
+        else current+=n;
+      } return total+current;
     }
     function parsePrice(text){
       const d = /under\s+(\d[\d,]*)/.exec(text); if (d) return parseInt(d[1].replace(/,/g,''),10);
       const w = /under\s+([a-z\s-]+?)(?:\b(?:rupees|inr))?\b/.exec(text);
-      if (w){ const val = wordsToNumber(w[1].replace(/-/g,' ')); if (val>0) return val; }
+      if (w){ const val=wordsToNumber(w[1].replace(/-/g,' ')); if (val>0) return val; }
       return null;
     }
     const ORDINAL_WORDS = {'first':1,'second':2,'third':3,'fourth':4,'fifth':5,'sixth':6,'seventh':7,'eighth':8,'ninth':9,'tenth':10};
@@ -325,69 +327,45 @@
       if (/\bsecurity\b|\bfirewall\b|\bsase\b|\bztna\b/.test(text)) return 'security';
       return null;
     }
-    function parseSpeed(text){
-      const m = /(\d{2,4})\s*mbps/.exec(text); if (m) return parseInt(m[1],10);
-      const w = /(\btwo|three|four|five|six|seven|eight|nine)\s*hundred\s*mbps/.exec(text); if (w) return wordsToNumber(`${w[1]} hundred`);
-      return null;
-    }
-
-    // --------- Fuzzy product match for "add X to cart" ---------
     function tokenize(s){ return s.split(/\s+/).filter(Boolean); }
     function bestMatchProductFromText(text, list){
-      const n = normalize(text);
-      const tokens = tokenize(n);
+      const n = normalize(text); const tokens = tokenize(n);
+      const hasPro=/\bpro\b|\bprofessional\b/.test(n), hasLite=/\blite\b|\blight\b/.test(n), hasPlus=/\bplus\b|\bmax\b/.test(n);
 
-      const hasPro   = /\bpro\b|\bprofessional\b/.test(n);
-      const hasLite  = /\blite\b|\blight\b/.test(n);
-      const hasPlus  = /\bplus\b|\bmax\b/.test(n);
-
-      // direct variant pick
+      // Direct variant pick
       const tagged = list.filter(p=>{
-        const title = (p.title||'').toLowerCase();
-        const sku   = (p.sku||'').toLowerCase();
-        const tHasPro  = /\bpro\b/.test(title)  || /(^|[^a-z])p($|[^a-z])/.test(sku)   || /-p\b/.test(sku);
-        const tHasLite = /\blite\b/.test(title) || /(^|[^a-z])l($|[^a-z])/.test(sku)   || /-l\b/.test(sku);
-        const tHasPlus = /\bplus\b|\bmax\b/.test(title);
-        return (hasPro  && tHasPro)  || (hasLite && tHasLite) || (hasPlus && tHasPlus);
+        const title=(p.title||'').toLowerCase(), sku=(p.sku||'').toLowerCase();
+        const tPro = /\bpro\b/.test(title) || /-p\b/.test(sku);
+        const tLite= /\blite\b/.test(title)|| /-l\b/.test(sku);
+        const tPlus= /\bplus\b|\bmax\b/.test(title);
+        return (hasPro&&tPro)||(hasLite&&tLite)||(hasPlus&&tPlus);
       });
-      if (tagged.length === 1) return tagged[0];
-      if (tagged.length > 1) {
-        if (hasPro)  return tagged.find(p=>/\bpro\b/.test((p.title||'').toLowerCase()))  || tagged[0];
-        if (hasLite) return tagged.find(p=>/\blite\b/.test((p.title||'').toLowerCase())) || tagged[0];
+      if (tagged.length===1) return tagged[0];
+      if (tagged.length>1){
+        if (hasPro) return tagged.find(p=>/\bpro\b/.test((p.title||'').toLowerCase()))||tagged[0];
+        if (hasLite) return tagged.find(p=>/\blite\b/.test((p.title||'').toLowerCase()))||tagged[0];
         return tagged[0];
       }
 
-      // fuzzy fallback
-      let best = null, bestScore = -1;
+      // Fuzzy fallback with bonuses/penalties
+      let best=null,bestScore=-1;
       for (const p of list){
-        const title = (p.title||'').toLowerCase();
-        const brand = (p.brand||'').toLowerCase();
-        const sku   = (p.sku||'').toLowerCase();
-
-        const words = new Set(
-          title.replace(/[^a-z0-9 ]/g,' ').split(/\s+/)
-            .concat(brand.split(/\s+/))
-            .concat((p.category||'').split(/\s+/))
-            .filter(Boolean)
-        );
-
-        let score = 0;
-        if (sku && n.includes(sku)) score += 20;
-        for (const t of tokens){ if (words.has(t)) score += 2; }
-        if (hasPro  && /\bpro\b/.test(title))  score += 10;
-        if (hasLite && /\blite\b/.test(title)) score += 10;
-        if (hasPro  && /\blite\b/.test(title)) score -= 12;
-        if (hasLite && /\bpro\b/.test(title))  score -= 12;
-
-        const dist = editDistance(title.replace(/\s+/g,''), n.replace(/\s+/g,''));
-        score += Math.max(0, 5 - dist);
-
-        if (score > bestScore){ best = p; bestScore = score; }
+        const title=(p.title||'').toLowerCase(), brand=(p.brand||'').toLowerCase(), sku=(p.sku||'').toLowerCase();
+        const words = new Set(title.replace(/[^a-z0-9 ]/g,' ').split(/\s+/).concat(brand.split(/\s+/),(p.category||'').split(/\s+/)).filter(Boolean));
+        let score=0;
+        if (sku && n.includes(sku)) score+=20;
+        for (const t of tokens){ if (words.has(t)) score+=2; }
+        if (hasPro && /\bpro\b/.test(title)) score+=10;
+        if (hasLite&& /\blite\b/.test(title)) score+=10;
+        if (hasPro && /\blite\b/.test(title)) score-=12;
+        if (hasLite&& /\bpro\b/.test(title))  score-=12;
+        const dist=editDistance(title.replace(/\s+/g,''), n.replace(/\s+/g,'')); score+=Math.max(0,5-dist);
+        if (score>bestScore){ best=p; bestScore=score; }
       }
       return best;
     }
 
-    // ---------------- Intent handling ----------------
+    // ===== SECTION: INTENT HANDLER (single entrypoint) =======================
     function handleUtterance(raw){
       const text = normalize(raw);
       you.textContent = raw;
@@ -403,158 +381,143 @@
       }
 
       const nth = parseOrdinal(text);
-      if (nth){
-        const i = nth - 1;
-        if (RESULTS[i]) { addToCart(RESULTS[i]); return; }
-      }
+      if (nth){ const i=nth-1; if (RESULTS[i]) { addToCart(RESULTS[i]); return; } }
 
-      // add by name/sku
       if (/add .* to cart|add to cart/.test(text)){
-        const pmatch = bestMatchProductFromText(text, RESULTS.length ? RESULTS : PRODUCTS);
+        const pmatch = bestMatchProductFromText(text, RESULTS.length?RESULTS:PRODUCTS);
         if (pmatch){ addToCart(pmatch); return; }
         if (RESULTS[0]) addToCart(RESULTS[0]); else speak('No results to add.');
         return;
       }
 
-      // search / filter
       if (/find|show|look for|browse/.test(text)){
-        const category = detectCategory(text);
-        const priceCap = parsePrice(text);
-        const speed = parseSpeed(text);
-        const brand = /(orangetel|orangebiz|orangesecure|netbee|switchly|sensehub)/.exec(text)?.[1] || null;
-
-        let list = PRODUCTS.slice();
-        if (category) list = list.filter(p=>p.category===category);
-        if (priceCap!=null) list = list.filter(p=> p.price <= priceCap);
-        if (speed!=null) list = list.filter(p=> p.speed_mbps && p.speed_mbps >= speed);
-        if (brand) list = list.filter(p=> p.brand.toLowerCase()===brand);
-
-        RESULTS = list;
+        const category=detectCategory(text), priceCap=parsePrice(text), speed=(/(\d{2,4})\s*mbps/.exec(text)?.[1]|0);
+        const brand=/(orangetel|orangebiz|orangesecure|netbee|switchly|sensehub)/.exec(text)?.[1]||null;
+        let list=PRODUCTS.slice();
+        if (category) list=list.filter(p=>p.category===category);
+        if (priceCap!=null) list=list.filter(p=>p.price<=priceCap);
+        if (speed) list=list.filter(p=>p.speed_mbps && p.speed_mbps>=Number(speed));
+        if (brand) list=list.filter(p=>p.brand.toLowerCase()===brand);
+        RESULTS=list;
         if (!list.length){ resultsEl.innerHTML=''; countEl.textContent='0 items'; speak('No matching products found.'); return; }
         renderResults(list);
-
-        const first = list[0];
-        let summary = `${list.length} result${list.length>1?'s':''}`;
-        if (category) summary += ` for ${category}`;
-        if (priceCap!=null) summary += ` under ${priceCap} rupees`;
-        if (speed!=null) summary += ` at ${speed} megabits per second or more`;
-        speak(`${summary}. First is ${first.title} at ₹${first.price}.`);
-        return;
+        const first=list[0]; let summary=`${list.length} result${list.length>1?'s':''}`;
+        if (category) summary+=` for ${category}`; if (priceCap!=null) summary+=` under ${priceCap} rupees`; if (speed) summary+=` at ${speed} megabits per second or more`;
+        speak(`${summary}. First is ${first.title} at ₹${first.price}.`); return;
       }
 
-      if (/stop|be quiet|silence/.test(text)){
-        window.speechSynthesis.cancel(); bot.textContent='⏹️ Stopped speaking.'; return;
-      }
+      if (/stop|be quiet|silence/.test(text)){ speechSynthesis.cancel(); bot.textContent='⏹️ Stopped speaking.'; return; }
       speak('Try: show sd-wan; find routers under three thousand; add sd wan pro to cart; add the second to cart; what’s in my cart.');
     }
 
-    // ---------------- Mode toggle ----------------
-    modeWebBtn.onclick = ()=>{ mode='web'; modeWebBtn.classList.add('active'); modeWhisperBtn.classList.remove('active'); modelHint.innerHTML='Mode: <b>Browser STT</b> (fast). Switch to <b>Whisper STT</b> for better accuracy on telecom terms.'; };
-    modeWhisperBtn.onclick = ()=>{ mode='whisper'; modeWhisperBtn.classList.add('active'); modeWebBtn.classList.remove('active'); modelHint.innerHTML='Mode: <b>Whisper STT</b>. First run downloads a small model; accuracy is better for SD-WAN/SASE/etc.'; };
-
-    // ---------------- STT: Browser Web Speech ----------------
+    // ===== SECTION: STT – Browser Web Speech API ============================
     const DOMAIN_WORDS = ['sdwan','broadband','internet','fiber','router','switch','iot','security','firewall','sase','ztna'];
     const SpeechRec = window.SpeechRecognition || window.webkitSpeechRecognition;
-    let rec, listening=false, whisperReady=false;
-
+    let rec, listening=false;
     if (SpeechRec){
       rec = new SpeechRec();
       rec.lang = 'en-IN';
       rec.maxAlternatives = 3;
       rec.continuous = false;
       rec.interimResults = true;
-
       rec.onresult = (event)=>{
-        const firstAlt = event.results[0][0].transcript;
-        you.textContent = firstAlt;
+        const firstAlt = event.results[0][0].transcript; you.textContent = firstAlt;
         if (event.results[0].isFinal){
-          const alts = [];
-          for (const res of event.results){
-            for (let i=0;i<res.length;i++){ alts.push(res[i].transcript); }
-          }
-          let best = alts[0], bestScore = -1;
-          for (const a of alts){
-            const n = normalize(a);
-            const hit = DOMAIN_WORDS.some(w => n.includes(w));
-            const score = hit ? 1 : 0;
-            if (score > bestScore){ best = a; bestScore = score; }
-          }
+          const alts=[]; for (const r of event.results){ for (let i=0;i<r.length;i++) alts.push(r[i].transcript); }
+          let best=alts[0],score=-1; for (const a of alts){ const n=normalize(a); const hit=DOMAIN_WORDS.some(w=>n.includes(w)); if ((hit?1:0)>score){best=a;score=hit?1:0;} }
           handleUtterance(best);
         }
       };
       rec.onend = ()=>{ if (listening && mode==='web') try{rec.start()}catch{}; };
-    } else {
-      live.textContent = 'Mic not supported in this browser.';
-      toggleBtn.disabled = true;
     }
 
-    // ---------------- STT: Whisper (Transformers.js) ----------------
-    let mediaStream, mediaRecorder, chunks=[];
-    let asr; // pipeline
+    // ===== SECTION: STT – Whisper (Transformers.js) w/ badges, auto-stop ====
+    let mediaStream, mediaRecorder, chunks=[], asr=null, whisperReady=false;
+    const WHISPER_FAST='Xenova/whisper-tiny.en';   // quick bootstrap
+    const WHISPER_QUALITY='Xenova/whisper-base.en';// better accuracy
+    const WHISPER_DTYPE='fp16';
+
     async function ensureWhisper(){
       if (asr) return;
+      setWhisperBadge('STT: Whisper (loading…)');
       speak('Loading Whisper model, this may take a moment on first run.');
-      asr = await window.transformers.pipeline('automatic-speech-recognition', 'Xenova/whisper-base.en', { dtype: 'fp16' });
-      whisperReady = true;
-      speak('Whisper model ready.');
-    }
-    async function startWhisper(){
-      await ensureWhisper();
-      mediaStream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      chunks = [];
-      mediaRecorder = new MediaRecorder(mediaStream, { mimeType: 'audio/webm' });
-      mediaRecorder.ondataavailable = (e)=>{ if (e.data.size>0) chunks.push(e.data); };
-      mediaRecorder.onstop = async ()=>{
-        const blob = new Blob(chunks, { type: 'audio/webm' });
-        try{
-          const result = await asr(blob, { chunk_length_s: 30, return_timestamps: false });
-          const text = (result?.text || '').trim();
-          you.textContent = text;
-          handleUtterance(text);
-        } catch(err){
-          console.error(err);
-          speak('Sorry, I could not transcribe that. Please try again.');
+
+      const progress_callback = (p)=>{
+        if (typeof p?.progress === 'number'){
+          setWhisperBadge(`STT: Whisper (loading ${Math.round(p.progress*100)}%)`);
         }
       };
+
+      const controller=new AbortController(); const watchdog=setTimeout(()=>controller.abort(), 60000);
+      try{
+        // Load tiny first
+        asr = await window.transformers.pipeline('automatic-speech-recognition', WHISPER_FAST, { dtype: WHISPER_DTYPE, progress_callback, signal: controller.signal });
+        whisperReady=true; setWhisperBadge('STT: Whisper (ready)', true); speak('Whisper model ready.');
+        // Upgrade to base in background
+        window.transformers.pipeline('automatic-speech-recognition', WHISPER_QUALITY, { dtype: WHISPER_DTYPE, progress_callback })
+          .then(p=>{ asr=p; setWhisperBadge('STT: Whisper (base ready)', true); });
+      } catch(err){
+        console.error('Whisper load failed:', err);
+        whisperReady=false; setWhisperBadge('STT: Browser (fallback)', false);
+        speak('Whisper did not load. Falling back to the browser recognizer.');
+        mode='web'; modeWebBtn.classList.add('active'); modeWhisperBtn.classList.remove('active');
+      } finally { clearTimeout(watchdog); }
+    }
+
+    async function startWhisper(){
+      await ensureWhisper(); if (!whisperReady) return;
+      mediaStream = await navigator.mediaDevices.getUserMedia({ audio:true });
+      chunks=[]; mediaRecorder = new MediaRecorder(mediaStream, { mimeType:'audio/webm' });
+      mediaRecorder.ondataavailable = (e)=>{ if (e.data.size>0) chunks.push(e.data); };
+      mediaRecorder.onstop = async ()=>{
+        const blob = new Blob(chunks, { type:'audio/webm' });
+        try{
+          setWhisperBadge('STT: Whisper (transcribing…)');
+          const result = await asr(blob, { chunk_length_s:30, return_timestamps:false });
+          const text = (result?.text||'').trim();
+          setWhisperBadge('STT: Whisper (ready)', true);
+          you.textContent = text; handleUtterance(text);
+        } catch(err){ console.error(err); setWhisperBadge('STT: Whisper (error)'); speak('Sorry, I could not transcribe that. Please try again.'); }
+      };
       mediaRecorder.start();
+      // Auto-stop after 6s so user doesn't need to click stop
+      setTimeout(()=>{ try{ if (mediaRecorder.state==='recording') mediaRecorder.stop(); }catch{} }, 6000);
     }
     function stopWhisper(){
-      try{ mediaRecorder && mediaRecorder.stop(); }catch{}
+      try{ mediaRecorder && mediaRecorder.state==='recording' && mediaRecorder.stop(); }catch{}
       try{ mediaStream && mediaStream.getTracks().forEach(t=>t.stop()); }catch{}
     }
 
-    // ---------------- Button wiring ----------------
+    // ===== SECTION: MODE TOGGLE & MIC BUTTON =================================
+    modeWebBtn.onclick = ()=>{
+      mode='web';
+      modeWebBtn.classList.add('active'); modeWhisperBtn.classList.remove('active');
+      modelHint.innerHTML='Mode: <b>Browser STT</b> (fast). Switch to <b>Whisper STT</b> for better accuracy.';
+      setWhisperBadge('STT: Browser'); 
+    };
+    modeWhisperBtn.onclick = ()=>{
+      mode='whisper';
+      modeWhisperBtn.classList.add('active'); modeWebBtn.classList.remove('active');
+      modelHint.innerHTML='Mode: <b>Whisper STT</b>. First run downloads a small model; accuracy is better for SD-WAN/SASE.';
+      setWhisperBadge('STT: Whisper (loading…)'); ensureWhisper();
+    };
+
     toggleBtn.onclick = async ()=>{
       if (!listening){
         listening = true;
-        toggleBtn.textContent = 'Stop Listening';
-        toggleBtn.classList.add('stop');
-        live.textContent = 'Mic: listening…'; live.classList.remove('offline'); live.classList.add('online');
-
-        if (mode === 'web'){
-          rec && rec.start();
-        } else {
-          await startWhisper();
-        }
+        toggleBtn.textContent='Stop Listening'; toggleBtn.classList.add('stop');
+        live.textContent='Mic: listening…'; live.classList.remove('offline'); live.classList.add('online');
+        if (mode==='web'){ rec && rec.start(); } else { await startWhisper(); }
       } else {
         listening = false;
-        toggleBtn.textContent = 'Start Listening';
-        toggleBtn.classList.remove('stop');
-        live.textContent = 'Mic: idle'; live.classList.add('offline'); live.classList.remove('online');
-
-        if (mode === 'web'){
-          rec && rec.stop();
-        } else {
-          stopWhisper();
-        }
+        toggleBtn.textContent='Start Listening'; toggleBtn.classList.remove('stop');
+        live.textContent='Mic: idle'; live.classList.add('offline'); live.classList.remove('online');
+        if (mode==='web'){ rec && rec.stop(); } else { stopWhisper(); }
       }
     };
 
-    // ---------------- Init ----------------
+    // ===== SECTION: INIT ======================================================
     loadProducts();
-
-    // Kick asynchronous Warm-up of Kokoro (so first reply is neural)
-    (async ()=>{ try{ if (window.__kokoro) await window.__kokoro.ensureKokoro(); }catch{} })();
   </script>
 </body>
 </html>
