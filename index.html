@@ -25,14 +25,13 @@
     .caps{font-size:.75rem;color:var(--muted);text-transform:uppercase;letter-spacing:.06em}
     .row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
     .cart{position:sticky;top:16px}
-    .pill{padding:4px 8px;border-radius:999px;background:#0b1220;border:1px solid var(--line);color:#muted;font-size:.8rem}
     code{background:#0b1220;border:1px solid var(--line);padding:2px 6px;border-radius:6px;color:#cbd5e1}
-    .seg{display:inline-flex;border:1px solid var(--line);border-radius:999px;overflow:hidden}
+    .seg{display:inline-flex;border:1px solid var(--line);border-radius:999px;overflow:hidden;margin-left:auto}
     .seg button{background:transparent;color:#cbd5e1;border-right:1px solid var(--line)}
     .seg button:last-child{border-right:0}
     .seg button.active{background:#0b1220}
   </style>
-  <!-- Whisper in-browser via Transformers.js (loads models from Hugging Face CDN) -->
+  <!-- In-browser Whisper via Transformers.js -->
   <script src="https://cdn.jsdelivr.net/npm/@xenova/transformers@2.16.1"></script>
 </head>
 <body>
@@ -44,17 +43,17 @@
         <button id="toggle" class="mic">Start Listening</button>
         <span id="live" class="status offline">Mic: idle</span>
         <span id="secure" class="status">Secure context: …</span>
-        <div class="seg" style="margin-left:auto">
+        <div class="seg">
           <button id="modeWeb" class="active" title="Browser Web Speech API">Browser STT</button>
           <button id="modeWhisper" title="Whisper tiny (in browser)">Whisper STT</button>
         </div>
       </div>
       <p style="margin:8px 0 0;color:#cbd5e1">
         Try: <code>show sd wan</code> · <code>find routers under three thousand</code> ·
-        <code>find broadband 300 mbps</code> · <code>add the second to cart</code> · <code>what's in my cart</code>
+        <code>find broadband 300 mbps</code> · <code>add sd wan pro to cart</code> · <code>add the second to cart</code> · <code>what's in my cart</code>
       </p>
       <p id="modelHint" style="margin:6px 0 0;color:#94a3b8;font-size:.9rem">
-        Mode: <b>Browser STT</b> (fast, lighter). Switch to <b>Whisper STT</b> for better accuracy on telecom terms (first load takes time).
+        Mode: <b>Browser STT</b> (fast). Switch to <b>Whisper STT</b> for better accuracy on telecom terms (first load takes time).
       </p>
     </div>
 
@@ -193,6 +192,7 @@
 
     function normalize(raw){
       let t = (raw || '').toLowerCase();
+      // fix SD-WAN mishears
       t = t
         .replace(/\bhd\s*ban\b/g, 'sdwan')
         .replace(/\bsd\s*one\b/g, 'sdwan')
@@ -248,6 +248,50 @@
       return null;
     }
 
+    // --------- Fuzzy product match for "add X to cart" ---------
+    function tokenize(s){ return s.split(/\s+/).filter(Boolean); }
+    function bestMatchProductFromText(text, list){
+      const ntext = normalize(text);
+      const tokens = tokenize(ntext);
+      let best = null, bestScore = -1;
+
+      for (const p of list){
+        const title = (p.title || '').toLowerCase();
+        const brand = (p.brand || '').toLowerCase();
+        const sku = (p.sku || '').toLowerCase();
+
+        const words = new Set(
+          title.replace(/[^a-z0-9 ]/g,' ').split(/\s+/)
+            .concat(brand.split(/\s+/))
+            .concat((p.category||'').split(/\s+/))
+            .filter(Boolean)
+        );
+
+        let score = 0;
+        // 1) Exact SKU mention
+        if (sku && ntext.includes(sku)) score += 10;
+
+        // 2) Tags like pro/lite/ax5400/24p etc.
+        const keyTags = ['pro','lite','plus','max','ax1800','ax5400','24p','8p'];
+        for (const tag of keyTags){
+          if (ntext.includes(tag) && title.includes(tag)) score += 5;
+        }
+
+        // 3) Token overlap
+        for (const t of tokens){ if (words.has(t)) score += 2; }
+
+        // 4) Small edit-distance bonus
+        const dist = editDistance(
+          title.replace(/\s+/g,''),
+          ntext.replace(/\s+/g,'')
+        );
+        if (dist <= 2) score += 3;
+
+        if (score > bestScore){ best = p; bestScore = score; }
+      }
+      return bestScore >= 4 ? best : null;
+    }
+
     // ---------------- Intent handling ----------------
     function handleUtterance(raw){
       const text = normalize(raw);
@@ -262,16 +306,23 @@
         speak(`You have ${CART.length} item${CART.length>1?'s':''} totaling ₹${CART.reduce((s,p)=>s+p.price,0)}.`);
         return;
       }
+
+      // add Nth
       const nth = parseOrdinal(text);
       if (nth){
         const i = nth - 1;
-        if (RESULTS[i]) addToCart(RESULTS[i]); else speak('I could not find that item number on the page.');
-        return;
+        if (RESULTS[i]) { addToCart(RESULTS[i]); return; }
       }
+
+      // add by name/sku (fuzzy), fallback to first
       if (/add .* to cart|add to cart/.test(text)){
+        const pmatch = bestMatchProductFromText(text, RESULTS.length ? RESULTS : PRODUCTS);
+        if (pmatch){ addToCart(pmatch); return; }
         if (RESULTS[0]) addToCart(RESULTS[0]); else speak('No results to add.');
         return;
       }
+
+      // search / filter
       if (/find|show|look for|browse/.test(text)){
         const category = detectCategory(text);
         const priceCap = parsePrice(text);
@@ -296,15 +347,16 @@
         speak(`${summary}. First is ${first.title} at ₹${first.price}.`);
         return;
       }
+
       if (/stop|be quiet|silence/.test(text)){
         window.speechSynthesis.cancel(); bot.textContent='⏹️ Stopped speaking.'; return;
       }
-      speak('Try: show sd-wan; find routers under three thousand; add the second to cart; what’s in my cart.');
+      speak('Try: show sd-wan; find routers under three thousand; add sd wan pro to cart; add the second to cart; what’s in my cart.');
     }
 
     // ---------------- Mode toggle ----------------
-    modeWebBtn.onclick = ()=>{ mode='web'; modeWebBtn.classList.add('active'); modeWhisperBtn.classList.remove('active'); modelHint.innerHTML='Mode: <b>Browser STT</b> (fast, lighter). Switch to <b>Whisper STT</b> for better accuracy on telecom terms.'; };
-    modeWhisperBtn.onclick = ()=>{ mode='whisper'; modeWhisperBtn.classList.add('active'); modeWebBtn.classList.remove('active'); modelHint.innerHTML='Mode: <b>Whisper STT</b>. First run downloads a small model; accuracy is better for things like SD-WAN.'; };
+    modeWebBtn.onclick = ()=>{ mode='web'; modeWebBtn.classList.add('active'); modeWhisperBtn.classList.remove('active'); modelHint.innerHTML='Mode: <b>Browser STT</b> (fast). Switch to <b>Whisper STT</b> for better accuracy on telecom terms.'; };
+    modeWhisperBtn.onclick = ()=>{ mode='whisper'; modeWhisperBtn.classList.add('active'); modeWebBtn.classList.remove('active'); modelHint.innerHTML='Mode: <b>Whisper STT</b>. First run downloads a small model; accuracy is better for SD-WAN/SASE/etc.'; };
 
     // ---------------- STT: Browser Web Speech ----------------
     const DOMAIN_WORDS = ['sdwan','broadband','internet','fiber','router','switch','iot','security','firewall','sase','ztna'];
@@ -343,7 +395,6 @@
     }
 
     // ---------------- STT: Whisper (Transformers.js) ----------------
-    // Uses MediaRecorder to capture short clips, then transcribes with Xenova/whisper-tiny.en
     let mediaStream, mediaRecorder, chunks=[];
     let asr; // pipeline
     async function ensureWhisper(){
@@ -361,10 +412,7 @@
       mediaRecorder.ondataavailable = (e)=>{ if (e.data.size>0) chunks.push(e.data); };
       mediaRecorder.onstop = async ()=>{
         const blob = new Blob(chunks, { type: 'audio/webm' });
-        const arrayBuffer = await blob.arrayBuffer();
-        const audio = new Float32Array(arrayBuffer); // fallback if decode fails
         try{
-          // Transformers.js can take a Blob/URL directly
           const result = await asr(blob, { chunk_length_s: 30, return_timestamps: false });
           const text = (result?.text || '').trim();
           you.textContent = text;
