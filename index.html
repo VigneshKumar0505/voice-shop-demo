@@ -12,17 +12,21 @@
     h1{font-size:1.5rem;margin:0 0 12px}
     .card{background:#111827aa;border:1px solid var(--line);border-radius:14px;padding:16px;margin:12px 0}
     button{border:0;border-radius:999px;padding:10px 16px;font-weight:700;cursor:pointer}
-    .mic{background:var(--accent);color:#08210f} .mic.stop{background:var(--warn);color:#fff}
+    .mic{background:var(--accent);color:#08210f}
+    .mic.stop{background:var(--warn);color:#fff}
     .status{display:inline-block;padding:6px 10px;border-radius:999px;background:var(--panel);border:1px solid var(--line);color:var(--muted);margin-left:8px}
-    .status.online{color:var(--accent);border-color:#14532d} .status.offline{color:var(--warn);border-color:#3f1d1d}
+    .status.online{color:var(--accent);border-color:#14532d}
+    .status.offline{color:var(--warn);border-color:#3f1d1d}
     .area{min-height:54px;padding:12px;border-radius:10px;background:var(--panel);border:1px dashed #334155}
     .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:12px}
     .prod{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:12px}
-    .title{font-weight:700} .price{color:#cbd5e1;margin-left:6px}
+    .title{font-weight:700}
+    .price{color:#cbd5e1;margin-left:6px}
     .caps{font-size:.75rem;color:var(--muted);text-transform:uppercase;letter-spacing:.06em}
     .row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
     .cart{position:sticky;top:16px}
     .pill{padding:4px 8px;border-radius:999px;background:#0b1220;border:1px solid var(--line);color:var(--muted);font-size:.8rem}
+    code{background:#0b1220;border:1px solid var(--line);padding:2px 6px;border-radius:6px;color:#cbd5e1}
   </style>
 </head>
 <body>
@@ -33,7 +37,10 @@
       <button id="toggle" class="mic">Start Listening</button>
       <span id="live" class="status offline">Mic: idle</span>
       <span id="secure" class="status">Secure context: …</span>
-      <p style="margin:8px 0 0;color:#cbd5e1">Try: <code>find broadband under one thousand</code> · <code>show sd-wan</code> · <code>find routers under three thousand</code> · <code>add the second to cart</code> · <code>what's in my cart</code></p>
+      <p style="margin:8px 0 0;color:#cbd5e1">
+        Try: <code>show sd wan</code> · <code>find routers under three thousand</code> ·
+        <code>find broadband 300 mbps</code> · <code>add the second to cart</code> · <code>what's in my cart</code>
+      </p>
     </div>
 
     <div class="card">
@@ -110,7 +117,7 @@
         el.className = 'prod';
         el.innerHTML = `
           <div class="title">${idx+1}. ${p.title}</div>
-          <div class="caps">${p.category} · ${p.brand} · ${p.sku}</div>
+          <div class="caps">${p.category} · ${p.brand}${p.sku?` · ${p.sku}`:''}</div>
           <div style="margin:6px 0">
             <span class="price">₹${p.price}</span>
             ${p.speed_mbps ? `<span class="pill">${p.speed_mbps} Mbps</span>` : ''}
@@ -123,7 +130,6 @@
         `;
         resultsEl.appendChild(el);
       });
-      // wire add buttons
       document.querySelectorAll('.addBtn').forEach(b=>{
         b.onclick = (e)=>{
           const i = parseInt(e.currentTarget.getAttribute('data-idx'), 10);
@@ -196,59 +202,139 @@
       else { rec.stop(); live.textContent='Mic: idle'; toggleBtn.textContent='Start Listening'; toggleBtn.classList.remove('stop'); }
     };
 
-    // ---------- NLU (very simple rules) ----------
+    // ---------- Helpers for parsing ----------
+    function normalize(raw){
+      let t = (raw || '').toLowerCase();
+      t = t.replace(/[-_/.,]/g,' ');
+      // unify sd-wan variants: "sd wan", "s d wan", "sdwan", "sdvan"
+      t = t.replace(/\bs\s*d\s*w\s*a\s*n\b/g, 'sdwan')
+           .replace(/\bsd\s*wan\b/g,'sdwan')
+           .replace(/\bsdvan\b/g,'sdwan');
+      // plurals
+      t = t.replace(/\brouters?\b/g,'router')
+           .replace(/\bswitch(es)?\b/g,'switch');
+      return t.replace(/\s+/g,' ').trim();
+    }
+
+    const NUM_WORDS = {
+      'zero':0,'one':1,'two':2,'three':3,'four':4,'five':5,'six':6,'seven':7,'eight':8,'nine':9,'ten':10,
+      'eleven':11,'twelve':12,'thirteen':13,'fourteen':14,'fifteen':15,'sixteen':16,'seventeen':17,'eighteen':18,'nineteen':19,
+      'twenty':20,'thirty':30,'forty':40,'fifty':50,'sixty':60,'seventy':70,'eighty':80,'ninety':90,
+      'hundred':100,'thousand':1000
+    };
+
+    function wordsToNumber(phrase){
+      const tokens = phrase.split(/\s+/);
+      let total = 0, current = 0;
+      for (const w of tokens){
+        const n = NUM_WORDS[w];
+        if (n == null) continue;
+        if (n === 100 || n === 1000){
+          current = (current || 1) * n;
+          if (n === 1000){ total += current; current = 0; }
+        } else {
+          current += n;
+        }
+      }
+      return total + current;
+    }
+
+    function parsePrice(text){
+      const d = /under\s+(\d[\d,]*)/.exec(text);
+      if (d) return parseInt(d[1].replace(/,/g,''),10);
+      const w = /under\s+([a-z\s-]+?)(?:\b(?:rupees|inr))?\b/.exec(text);
+      if (w){
+        const val = wordsToNumber(w[1].replace(/-/g,' '));
+        if (val>0) return val;
+      }
+      return null;
+    }
+
+    const ORDINAL_WORDS = {'first':1,'second':2,'third':3,'fourth':4,'fifth':5,'sixth':6,'seventh':7,'eighth':8,'ninth':9,'tenth':10};
+    function parseOrdinal(text){
+      const m1 = /add the (\d+)(st|nd|rd|th)?/.exec(text);
+      if (m1) return parseInt(m1[1],10);
+      const m2 = /add the (first|second|third|fourth|fifth|sixth|seventh|eighth|ninth|tenth)/.exec(text);
+      if (m2) return ORDINAL_WORDS[m2[1]];
+      return null;
+    }
+
+    function detectCategory(text){
+      if (/\bsdwan\b/.test(text)) return 'sdwan';
+      if (/\bbroadband|fiber|fibre|internet\b/.test(text)) return 'broadband';
+      if (/\brouter\b/.test(text)) return 'router';
+      if (/\bswitch\b/.test(text)) return 'switch';
+      if (/\biot\b/.test(text)) return 'iot';
+      if (/\bsecurity|firewall|sase|ztna\b/.test(text)) return 'security';
+      return null;
+    }
+
+    function parseSpeed(text){
+      const m = /(\d{2,4})\s*mbps/.exec(text);
+      if (m) return parseInt(m[1],10);
+      const w = /(\btwo|three|four|five|six|seven|eight|nine)\s*hundred\s*mbps/.exec(text);
+      if (w) return wordsToNumber(`${w[1]} hundred`);
+      return null;
+    }
+
+    // ---------- NLU (improved) ----------
     function handleUtterance(raw){
-      const text = raw.toLowerCase();
+      const text = normalize(raw);
+
       // help
       if (/what can you do|help/.test(text)){
-        speak('I can find broadband, SD-WAN, routers, switches, IoT and security products, filter by price, and add items to your cart.');
+        speak('I can find broadband, SD-WAN, routers, switches, IoT and security products, filter by price, check speed, and add items to your cart.');
         return;
       }
+
       // show cart
-      if (/what'?s in my cart|show cart|cart/.test(text)){
-        if (CART.length===0) speak('Your cart is empty.');
-        else speak(`You have ${CART.length} item${CART.length>1?'s':''} in your cart. Total ${CART.reduce((s,p)=>s+p.price,0)} rupees.`);
+      if (/what'?s in my cart|show cart|^cart$/.test(text)){
+        if (CART.length===0){ speak('Your cart is empty.'); return; }
+        speak(`You have ${CART.length} item${CART.length>1?'s':''} totaling ₹${CART.reduce((s,p)=>s+p.price,0)}.`);
         return;
       }
-      // add by ordinal: "add the second"
-      const ord = text.match(/add the (\d+)(st|nd|rd|th)?/);
-      if (ord){
-        const i = parseInt(ord[1],10)-1;
+
+      // add by ordinal ("add the second/2nd/first")
+      const nth = parseOrdinal(text);
+      if (nth){
+        const i = nth - 1;
         if (RESULTS[i]) addToCart(RESULTS[i]); else speak('I could not find that item number on the page.');
         return;
       }
-      if (/add .* to cart/.test(text)){
-        // naive: add first visible result
+
+      // generic "add to cart"
+      if (/add .* to cart|add to cart/.test(text)){
         if (RESULTS[0]) addToCart(RESULTS[0]); else speak('No results to add.');
         return;
       }
-      // search category & price: "find routers under 3000", "show sd-wan", "find broadband 300 mbps", etc.
-      if (/find|show|look for/.test(text)){
-        const category = /(broadband|sd[\s-]?wan|router[s]?|switch(?:es)?|iot|security)/.exec(text)?.[1]?.replace(/\s|-/g,'') || null;
-        const priceCap = /under (\d{3,6})/.exec(text)?.[1] ? parseInt(/under (\d{3,6})/.exec(text)[1],10) : null;
-        const speed = /(\d{2,4})\s?mbps/.exec(text)?.[1] ? parseInt(/(\d{2,4})\s?mbps/.exec(text)[1],10) : null;
+
+      // search / filter
+      if (/find|show|look for|browse/.test(text)){
+        const category = detectCategory(text);
+        const priceCap = parsePrice(text);
+        const speed = parseSpeed(text);
         const brand = /(orangetel|orangebiz|orangesecure|netbee|switchly|sensehub)/.exec(text)?.[1] || null;
 
         let list = PRODUCTS.slice();
-
-        if (category){
-          const normCat = category.replace('sdwan','sdwan').replace('routers','router').replace('switches','switch');
-          list = list.filter(p=>p.category===normCat);
-        }
-        if (priceCap) list = list.filter(p=> p.price <= priceCap);
-        if (speed) list = list.filter(p=> p.speed_mbps && p.speed_mbps >= speed);
+        if (category) list = list.filter(p=>p.category===category);
+        if (priceCap!=null) list = list.filter(p=> p.price <= priceCap);
+        if (speed!=null) list = list.filter(p=> p.speed_mbps && p.speed_mbps >= speed);
         if (brand) list = list.filter(p=> p.brand.toLowerCase()===brand);
 
-        if (list.length===0){ speak('No matching products found.'); resultsEl.innerHTML=''; countEl.textContent='0 items'; return; }
-
         RESULTS = list;
+        if (list.length===0){
+          resultsEl.innerHTML = '';
+          countEl.textContent = '0 items';
+          speak('No matching products found.');
+          return;
+        }
         renderResults(list);
-        // short spoken summary
+
         const first = list[0];
         let summary = `${list.length} result${list.length>1?'s':''}`;
         if (category) summary += ` for ${category}`;
-        if (priceCap) summary += ` under ${priceCap} rupees`;
-        if (speed) summary += ` at ${speed} megabits per second or more`;
+        if (priceCap!=null) summary += ` under ${priceCap} rupees`;
+        if (speed!=null) summary += ` at ${speed} megabits per second or more`;
         speak(`${summary}. First is ${first.title} at ₹${first.price}.`);
         return;
       }
@@ -259,7 +345,7 @@
       }
 
       // default
-      speak('Try: find broadband under one thousand; show SD-WAN; add the second to cart; what’s in my cart.');
+      speak('Try: show sd-wan; find routers under three thousand; add the second to cart; what’s in my cart.');
     }
 
     // ---------- Init ----------
