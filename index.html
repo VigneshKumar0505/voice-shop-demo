@@ -431,62 +431,129 @@
       rec.onend = ()=>{ if (listening && mode==='web') try{rec.start()}catch{}; };
     }
 
-    // ===== SECTION: STT – Whisper (Transformers.js) w/ badges, auto-stop ====
-    let mediaStream, mediaRecorder, chunks=[], asr=null, whisperReady=false;
-    const WHISPER_FAST='Xenova/whisper-tiny.en';   // quick bootstrap
-    const WHISPER_QUALITY='Xenova/whisper-base.en';// better accuracy
-    const WHISPER_DTYPE='fp16';
+        <!-- ===== SECTION: STT – Whisper (Transformers.js) w/ badges, auto-stop ==== -->
+    <script>
+    // Keep using the existing whisperBadge + helpers already defined above.
 
-    async function ensureWhisper(){
-      if (asr) return;
+    let mediaStream, mediaRecorder, chunks = [];
+    let asr = null;
+    let whisperReady = false;
+
+    // Prefer tiny on first run (fastest), and try upgrading to base in background later.
+    const WHISPER_FAST    = 'Xenova/whisper-tiny.en';
+    const WHISPER_QUALITY = 'Xenova/whisper-base.en';
+
+    // NOTE: Do NOT force dtype here. Let Transformers.js choose (WASM/WebGL/WebGPU).
+    // For some browsers, forcing fp16 can cause init failures.
+
+    async function ensureWhisper() {
+      if (asr) { whisperReady = true; setWhisperBadge('STT: Whisper (ready)', true); return; }
+
       setWhisperBadge('STT: Whisper (loading…)');
       speak('Loading Whisper model, this may take a moment on first run.');
 
-      const progress_callback = (p)=>{
-        if (typeof p?.progress === 'number'){
-          setWhisperBadge(`STT: Whisper (loading ${Math.round(p.progress*100)}%)`);
+      // Show download progress (if provided by the backend)
+      const progress_callback = (p) => {
+        // p.status: 'progress' | 'done'; p.file, p.loaded, p.total
+        if (p?.status === 'progress' && typeof p.loaded === 'number' && typeof p.total === 'number') {
+          const pct = Math.max(0, Math.min(100, Math.round((p.loaded / Math.max(1, p.total)) * 100)));
+          setWhisperBadge(`STT: Whisper (loading ${pct}%)`);
         }
       };
 
-      const controller=new AbortController(); const watchdog=setTimeout(()=>controller.abort(), 60000);
-      try{
-        // Load tiny first
-        asr = await window.transformers.pipeline('automatic-speech-recognition', WHISPER_FAST, { dtype: WHISPER_DTYPE, progress_callback, signal: controller.signal });
-        whisperReady=true; setWhisperBadge('STT: Whisper (ready)', true); speak('Whisper model ready.');
-        // Upgrade to base in background
-        window.transformers.pipeline('automatic-speech-recognition', WHISPER_QUALITY, { dtype: WHISPER_DTYPE, progress_callback })
-          .then(p=>{ asr=p; setWhisperBadge('STT: Whisper (base ready)', true); });
-      } catch(err){
-        console.error('Whisper load failed:', err);
-        whisperReady=false; setWhisperBadge('STT: Browser (fallback)', false);
-        speak('Whisper did not load. Falling back to the browser recognizer.');
-        mode='web'; modeWebBtn.classList.add('active'); modeWhisperBtn.classList.remove('active');
-      } finally { clearTimeout(watchdog); }
+      // A resilient loader with retries/backoff
+      const loadPipeline = async (modelId) => {
+        const MAX_RETRIES = 3;
+        let lastErr;
+        for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+          try {
+            return await window.transformers.pipeline(
+              'automatic-speech-recognition',
+              modelId,
+              { progress_callback } // no dtype hint — more portable
+            );
+          } catch (e) {
+            lastErr = e;
+            console.warn(`Whisper load attempt ${attempt} failed:`, e);
+            // brief backoff
+            await new Promise(r => setTimeout(r, 1500 * attempt));
+          }
+        }
+        throw lastErr;
+      };
+
+      try {
+        // 1) Always make sure tiny works first (fastest path).
+        asr = await loadPipeline(WHISPER_FAST);
+        whisperReady = true;
+        setWhisperBadge('STT: Whisper (ready)', true);
+        speak('Whisper model ready.');
+
+        // 2) Try to warm up base in the background for better accuracy (optional).
+        //    If this fails (CDN blocked, etc.), we silently keep tiny.
+        loadPipeline(WHISPER_QUALITY)
+          .then(p => {
+            asr = p;
+            setWhisperBadge('STT: Whisper (base ready)', true);
+          })
+          .catch(err => {
+            console.warn('Background upgrade to base failed; staying on tiny.', err);
+          });
+
+      } catch (err) {
+        console.error('Whisper failed to load:', err);
+        whisperReady = false;
+        setWhisperBadge('STT: Browser (fallback)', false);
+        speak('I could not load the Whisper model here, so I will use the browser recognizer.');
+        // Switch the UI back to Browser STT
+        mode = 'web';
+        modeWebBtn.classList.add('active');
+        modeWhisperBtn.classList.remove('active');
+      }
     }
 
-    async function startWhisper(){
-      await ensureWhisper(); if (!whisperReady) return;
-      mediaStream = await navigator.mediaDevices.getUserMedia({ audio:true });
-      chunks=[]; mediaRecorder = new MediaRecorder(mediaStream, { mimeType:'audio/webm' });
-      mediaRecorder.ondataavailable = (e)=>{ if (e.data.size>0) chunks.push(e.data); };
-      mediaRecorder.onstop = async ()=>{
-        const blob = new Blob(chunks, { type:'audio/webm' });
-        try{
+    async function startWhisper() {
+      await ensureWhisper();
+      if (!whisperReady) return;
+
+      mediaStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      chunks = [];
+      mediaRecorder = new MediaRecorder(mediaStream, { mimeType: 'audio/webm' });
+
+      mediaRecorder.ondataavailable = (e) => { if (e.data.size > 0) chunks.push(e.data); };
+
+      mediaRecorder.onstop = async () => {
+        const blob = new Blob(chunks, { type: 'audio/webm' });
+        try {
           setWhisperBadge('STT: Whisper (transcribing…)');
-          const result = await asr(blob, { chunk_length_s:30, return_timestamps:false });
-          const text = (result?.text||'').trim();
+          const result = await asr(blob, { chunk_length_s: 30, return_timestamps: false });
+          const text = (result?.text || '').trim();
           setWhisperBadge('STT: Whisper (ready)', true);
-          you.textContent = text; handleUtterance(text);
-        } catch(err){ console.error(err); setWhisperBadge('STT: Whisper (error)'); speak('Sorry, I could not transcribe that. Please try again.'); }
+          you.textContent = text;
+          handleUtterance(text);
+        } catch (err) {
+          console.error('Transcription error:', err);
+          setWhisperBadge('STT: Whisper (error)', false);
+          speak('Sorry, I could not transcribe that. Please try again.');
+        }
       };
+
       mediaRecorder.start();
-      // Auto-stop after 6s so user doesn't need to click stop
-      setTimeout(()=>{ try{ if (mediaRecorder.state==='recording') mediaRecorder.stop(); }catch{} }, 6000);
+
+      // Auto-stop after ~6s so the user doesn’t have to click "Stop".
+      setTimeout(() => {
+        try {
+          if (mediaRecorder && mediaRecorder.state === 'recording') mediaRecorder.stop();
+        } catch {}
+      }, 6000);
     }
-    function stopWhisper(){
-      try{ mediaRecorder && mediaRecorder.state==='recording' && mediaRecorder.stop(); }catch{}
-      try{ mediaStream && mediaStream.getTracks().forEach(t=>t.stop()); }catch{}
+
+    function stopWhisper() {
+      try { mediaRecorder && mediaRecorder.state === 'recording' && mediaRecorder.stop(); } catch {}
+      try { mediaStream && mediaStream.getTracks().forEach(t => t.stop()); } catch {}
     }
+    </script>
+
 
     // ===== SECTION: MODE TOGGLE & MIC BUTTON =================================
     modeWebBtn.onclick = ()=>{
