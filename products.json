@@ -1,0 +1,142 @@
+[
+  {
+    "id": "bb-100",
+    "title": "Home Broadband 100",
+    "category": "broadband",
+    "brand": "OrangeTel",
+    "sku": "BB100",
+    "price": 699,
+    "currency": "INR",
+    "speed_mbps": 100,
+    "contract": "monthly",
+    "features": ["Unlimited data (FUP 3TB)", "Wi-Fi router included", "No installation fee"],
+    "tags": ["home","internet","fiber"]
+  },
+  {
+    "id": "bb-300",
+    "title": "Home Broadband 300",
+    "category": "broadband",
+    "brand": "OrangeTel",
+    "sku": "BB300",
+    "price": 999,
+    "currency": "INR",
+    "speed_mbps": 300,
+    "contract": "monthly",
+    "features": ["Unlimited data (FUP 4TB)", "Dual-band router", "Priority support"],
+    "tags": ["home","internet","fiber"]
+  },
+  {
+    "id": "sdwan-lite",
+    "title": "SD-WAN Lite",
+    "category": "sdwan",
+    "brand": "OrangeBiz",
+    "sku": "SDW-L",
+    "price": 4999,
+    "currency": "INR",
+    "contract": "monthly",
+    "features": ["2 sites", "Link steering", "Basic analytics"],
+    "tags": ["smb","branch"]
+  },
+  {
+    "id": "sdwan-pro",
+    "title": "SD-WAN Pro",
+    "category": "sdwan",
+    "brand": "OrangeBiz",
+    "sku": "SDW-P",
+    "price": 14999,
+    "currency": "INR",
+    "contract": "monthly",
+    "features": ["10 sites", "App-aware routing", "ZTP", "Centralized policy"],
+    "tags": ["midmarket","multi-site"]
+  },
+  {
+    "id": "router-ax1800",
+    "title": "AX1800 Wi-Fi 6 Router",
+    "category": "router",
+    "brand": "NetBee",
+    "sku": "NB-AX1800",
+    "price": 2999,
+    "currency": "INR",
+    "features": ["Wi-Fi 6", "4x Gigabit LAN", "MU-MIMO"],
+    "tags": ["hardware","wifi"]
+  },
+  {
+    "id": "router-ax5400",
+    "title": "AX5400 Wi-Fi 6 Router",
+    "category": "router",
+    "brand": "NetBee",
+    "sku": "NB-AX5400",
+    "price": 6999,
+    "currency": "INR",
+    "features": ["Wi-Fi 6", "USB 3.0", "8-stream"],
+    "tags": ["hardware","wifi","premium"]
+  },
+  {
+    "id": "switch-8p",
+    "title": "8-Port Gigabit Switch",
+    "category": "switch",
+    "brand": "Switchly",
+    "sku": "SW-8G",
+    "price": 1499,
+    "currency": "INR",
+    "features": ["Fanless", "Metal housing"],
+    "tags": ["hardware","lan"]
+  },
+  {
+    "id": "switch-24p-poe",
+    "title": "24-Port PoE+ Switch",
+    "category": "switch",
+    "brand": "Switchly",
+    "sku": "SW-24P-POE",
+    "price": 12999,
+    "currency": "INR",
+    "features": ["PoE+ 370W", "L2+ VLAN", "Stack ready"],
+    "tags": ["hardware","poe","enterprise"]
+  },
+  {
+    "id": "cam-iot",
+    "title": "Smart IP Camera (IoT)",
+    "category": "iot",
+    "brand": "SenseHub",
+    "sku": "SH-CAM1",
+    "price": 2499,
+    "currency": "INR",
+    "features": ["1080p", "Night vision", "Wi-Fi"],
+    "tags": ["iot","camera","home"]
+  },
+  {
+    "id": "sensor-kit",
+    "title": "IoT Starter Sensor Kit",
+    "category": "iot",
+    "brand": "SenseHub",
+    "sku": "SH-SENSEKIT",
+    "price": 1999,
+    "currency": "INR",
+    "features": ["Temp/Humidity", "Gateway included"],
+    "tags": ["iot","maker"]
+  },
+  {
+    "id": "sec-fw-cloud",
+    "title": "Cloud Firewall",
+    "category": "security",
+    "brand": "OrangeSecure",
+    "sku": "OS-CFW",
+    "price": 3999,
+    "currency": "INR",
+    "contract": "monthly",
+    "features": ["Layer7 firewall", "IPS", "URL filtering"],
+    "tags": ["security","sase"]
+  },
+  {
+    "id": "sec-sase-pro",
+    "title": "SASE Pro (ZTNA + SWG)",
+    "category": "security",
+    "brand": "OrangeSecure",
+    "sku": "OS-SASE-P",
+    "price": 9999,
+    "currency": "INR",
+    "contract": "monthly",
+    "features": ["ZTNA", "SWG", "CASB", "DLP"],
+    "tags": ["security","remote"]
+  }
+]
