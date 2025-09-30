@@ -3,194 +3,267 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Voice Shop — Milestone 1 (Voice In/Out)</title>
+  <title>Voice Shop — Milestone 2 (Telecom)</title>
   <style>
-    :root { --bg:#0f172a; --fg:#e2e8f0; --muted:#94a3b8; --accent:#22c55e; --warn:#ef4444; }
+    :root { --bg:#0f172a; --panel:#0b1220; --fg:#e2e8f0; --muted:#94a3b8; --accent:#22c55e; --warn:#ef4444; --line:#1f2937; }
     *{box-sizing:border-box}
-    body{margin:0;font-family:Inter, system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, Arial, "Apple Color Emoji", "Segoe UI Emoji";background:var(--bg);color:var(--fg)}
-    .wrap{max-width:780px;margin:40px auto;padding:24px}
-    h1{font-size:1.4rem;margin:0 0 12px}
-    .card{background:#111827aa;border:1px solid #1f2937;border-radius:16px;padding:16px;margin:12px 0;box-shadow:0 6px 20px #00000044}
-    .row{display:flex;gap:12px;align-items:center;flex-wrap:wrap}
-    .status{padding:6px 10px;border-radius:999px;font-size:.9rem;background:#0b1220;border:1px solid #1f2937;color:var(--muted)}
-    .status.online{color:var(--accent);border-color:#14532d}
-    .status.offline{color:var(--warn);border-color:#3f1d1d}
-    button{appearance:none;border:none;border-radius:999px;padding:12px 18px;font-weight:600;cursor:pointer;box-shadow:0 6px 16px #00000033}
-    .mic{background:linear-gradient(180deg,#22c55e,#16a34a);color:#06220f}
-    .mic.stop{background:linear-gradient(180deg,#ef4444,#b91c1c);color:#2b0c0c}
-    .pill{padding:4px 10px;border-radius:999px;background:#0b1220;border:1px solid #1f2937;color:var(--muted);font-size:.85rem}
-    .area{min-height:72px;padding:12px;border-radius:12px;background:#0b1220;border:1px dashed #334155;color:#d1d5db}
-    .hint{color:var(--muted);font-size:.95rem}
-    code{background:#0b1220;color:#cbd5e1;padding:2px 6px;border-radius:6px;border:1px solid #1f2937}
-    footer{margin-top:20px;color:#94a3b8;font-size:.85rem}
+    body{margin:0;font-family:Inter,system-ui,Arial;background:var(--bg);color:var(--fg)}
+    .wrap{max-width:980px;margin:32px auto;padding:20px}
+    h1{font-size:1.5rem;margin:0 0 12px}
+    .card{background:#111827aa;border:1px solid var(--line);border-radius:14px;padding:16px;margin:12px 0}
+    button{border:0;border-radius:999px;padding:10px 16px;font-weight:700;cursor:pointer}
+    .mic{background:var(--accent);color:#08210f} .mic.stop{background:var(--warn);color:#fff}
+    .status{display:inline-block;padding:6px 10px;border-radius:999px;background:var(--panel);border:1px solid var(--line);color:var(--muted);margin-left:8px}
+    .status.online{color:var(--accent);border-color:#14532d} .status.offline{color:var(--warn);border-color:#3f1d1d}
+    .area{min-height:54px;padding:12px;border-radius:10px;background:var(--panel);border:1px dashed #334155}
+    .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:12px}
+    .prod{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:12px}
+    .title{font-weight:700} .price{color:#cbd5e1;margin-left:6px}
+    .caps{font-size:.75rem;color:var(--muted);text-transform:uppercase;letter-spacing:.06em}
+    .row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+    .cart{position:sticky;top:16px}
+    .pill{padding:4px 8px;border-radius:999px;background:#0b1220;border:1px solid var(--line);color:var(--muted);font-size:.8rem}
   </style>
 </head>
 <body>
   <div class="wrap">
-    <h1>🎙️ Voice Shop — Milestone 1 (Voice In/Out)</h1>
+    <h1>🎙️ Voice Shop — Telecom Assistant</h1>
+
+    <div class="card">
+      <button id="toggle" class="mic">Start Listening</button>
+      <span id="live" class="status offline">Mic: idle</span>
+      <span id="secure" class="status">Secure context: …</span>
+      <p style="margin:8px 0 0;color:#cbd5e1">Try: <code>find broadband under one thousand</code> · <code>show sd-wan</code> · <code>find routers under three thousand</code> · <code>add the second to cart</code> · <code>what's in my cart</code></p>
+    </div>
+
     <div class="card">
       <div class="row">
-        <span id="support" class="status">Checking browser support…</span>
-        <span id="net" class="pill">Secure context: <strong id="secureVal">?</strong></span>
+        <div style="flex:1">
+          <div class="caps">You said</div>
+          <div id="you" class="area" aria-live="polite"></div>
+        </div>
+        <div style="flex:1">
+          <div class="caps">Assistant replied</div>
+          <div id="bot" class="area" aria-live="polite"></div>
+        </div>
       </div>
-      <p class="hint">This page lets you <strong>speak</strong> and the assistant will <strong>talk back</strong>. No installs. Works best on Chrome.</p>
-      <div class="row">
-        <button id="toggle" class="mic">Start Listening</button>
-        <span id="live" class="status offline">Mic: idle</span>
+    </div>
+
+    <div class="row" style="align-items:flex-start">
+      <div style="flex:2" class="card">
+        <div class="row" style="justify-content:space-between">
+          <div class="caps">Results</div>
+          <div id="count" class="pill">0 items</div>
+        </div>
+        <div id="results" class="grid"></div>
+      </div>
+
+      <div style="flex:1;min-width:280px" class="card cart">
+        <div class="caps">Cart</div>
+        <div id="cartList" class="area" style="min-height:120px"></div>
+        <div class="row" style="margin-top:8px">
+          <div id="cartTotal" class="pill">Total: ₹0</div>
+          <button id="btnCheckout">Checkout</button>
+        </div>
       </div>
     </div>
-
-    <div class="card">
-      <h3 style="margin-top:0">🗣️ You said</h3>
-      <div id="you" class="area" aria-live="polite"></div>
-      <p class="hint" style="margin-top:8px">Try: <code>hello assistant</code> · <code>stop</code> · <code>what can you do</code></p>
-    </div>
-
-    <div class="card">
-      <h3 style="margin-top:0">🔈 Assistant replied</h3>
-      <div id="bot" class="area" aria-live="polite"></div>
-    </div>
-
-    <footer>
-      Next: we'll add a tiny in-memory product list and voice search ("find blue shoes under three thousand").
-    </footer>
   </div>
 
   <script>
-    // -----------------------------
-    // Basic capability checks
-    // -----------------------------
-    const supportEl = document.getElementById('support');
-    const secureVal = document.getElementById('secureVal');
-    const net = document.getElementById('net');
-    const live = document.getElementById('live');
+    // ---------- State ----------
+    let PRODUCTS = [];
+    let RESULTS = [];
+    const CART = [];
+
+    // ---------- DOM ----------
     const you = document.getElementById('you');
     const bot = document.getElementById('bot');
+    const live = document.getElementById('live');
+    const secure = document.getElementById('secure');
     const toggleBtn = document.getElementById('toggle');
+    const resultsEl = document.getElementById('results');
+    const countEl = document.getElementById('count');
+    const cartList = document.getElementById('cartList');
+    const cartTotal = document.getElementById('cartTotal');
+    const btnCheckout = document.getElementById('btnCheckout');
 
-    const hasSecure = window.isSecureContext;
-    secureVal.textContent = hasSecure ? 'yes' : 'no';
+    secure.textContent = 'Secure context: ' + (window.isSecureContext ? 'yes' : 'no');
 
-    // Web Speech API (STT)
-    const SpeechRec = window.SpeechRecognition || window.webkitSpeechRecognition;
-    let rec;
-    if (SpeechRec) {
-      rec = new SpeechRec();
-      rec.lang = 'en-IN';
-      rec.interimResults = true;
-      rec.continuous = false; // single utterance for simplicity
-      supportEl.textContent = 'Mic ready on this browser';
-      supportEl.classList.add('online');
-    } else {
-      supportEl.textContent = 'SpeechRecognition not supported. Use Chrome/Edge on desktop or Android.';
-      supportEl.classList.add('offline');
-      toggleBtn.disabled = true;
+    // ---------- Load products.json ----------
+    async function loadProducts() {
+      try {
+        const res = await fetch('products.json', { cache: 'no-store' });
+        PRODUCTS = await res.json();
+        RESULTS = PRODUCTS.slice(0, 6);
+        renderResults(RESULTS);
+      } catch (e) {
+        speak('I could not load the product catalog.');
+        console.error(e);
+      }
     }
 
-    // -----------------------------
-    // TTS helper
-    // -----------------------------
-    function speak(text) {
-      if (!text) return;
+    function renderResults(list) {
+      resultsEl.innerHTML = '';
+      countEl.textContent = `${list.length} item${list.length!==1?'s':''}`;
+      list.forEach((p, idx) => {
+        const el = document.createElement('div');
+        el.className = 'prod';
+        el.innerHTML = `
+          <div class="title">${idx+1}. ${p.title}</div>
+          <div class="caps">${p.category} · ${p.brand} · ${p.sku}</div>
+          <div style="margin:6px 0">
+            <span class="price">₹${p.price}</span>
+            ${p.speed_mbps ? `<span class="pill">${p.speed_mbps} Mbps</span>` : ''}
+            ${p.contract ? `<span class="pill">${p.contract}</span>` : ''}
+          </div>
+          <ul style="margin:6px 0 10px 18px; color:#cbd5e1">
+            ${(p.features||[]).slice(0,3).map(f=>`<li>${f}</li>`).join('')}
+          </ul>
+          <button data-idx="${idx}" class="addBtn">Add to cart</button>
+        `;
+        resultsEl.appendChild(el);
+      });
+      // wire add buttons
+      document.querySelectorAll('.addBtn').forEach(b=>{
+        b.onclick = (e)=>{
+          const i = parseInt(e.currentTarget.getAttribute('data-idx'), 10);
+          addToCart(list[i]);
+        };
+      });
+    }
+
+    function renderCart() {
+      if (CART.length === 0) {
+        cartList.textContent = 'Cart is empty.';
+        cartTotal.textContent = 'Total: ₹0';
+        return;
+      }
+      cartList.innerHTML = CART.map((c,i)=>`${i+1}. ${c.title} — ₹${c.price}`).join('<br>');
+      const total = CART.reduce((s,p)=>s+p.price,0);
+      cartTotal.textContent = `Total: ₹${total}`;
+    }
+
+    function addToCart(p) {
+      CART.push(p);
+      speak(`Added ${p.title} for ₹${p.price} to your cart.`);
+      renderCart();
+    }
+
+    btnCheckout.onclick = ()=>{
+      if (CART.length===0) { speak('Your cart is empty.'); return; }
+      const total = CART.reduce((s,p)=>s+p.price,0);
+      speak(`You have ${CART.length} item${CART.length>1?'s':''} for a total of ₹${total}. Ready to place the order?`);
+    };
+
+    // ---------- Voice (STT/TTS) ----------
+    const SpeechRec = window.SpeechRecognition || window.webkitSpeechRecognition;
+    let rec, listening=false;
+
+    function speak(text){
       bot.textContent = text;
       const u = new SpeechSynthesisUtterance(text);
       u.lang = 'en-IN';
-      u.rate = 1; // comfortable speed
-      window.speechSynthesis.cancel(); // cancel anything queued
+      window.speechSynthesis.cancel();
       window.speechSynthesis.speak(u);
     }
 
-    // -----------------------------
-    // Intent: super simple rules
-    // -----------------------------
-    function handleUtterance(raw) {
-      const text = (raw || '').toLowerCase().trim();
-      if (!text) return;
+    if (SpeechRec){
+      rec = new SpeechRec();
+      rec.lang = 'en-IN';
+      rec.continuous = false;
+      rec.interimResults = true;
 
-      // A couple of friendly, deterministic responses
-      if (/(hello|hi|hey).*(assistant)?/.test(text)) {
-        speak("Hi! I'm your voice shopping assistant. I can listen and talk back. Try saying: what can you do.");
-        return;
-      }
-
-      if (/what can you do|help|how do you work/.test(text)) {
-        speak("Right now I can hear you and reply. Next, I'll learn to find products by color and price.");
-        return;
-      }
-
-      if (/stop|be quiet|silence/.test(text)) {
-        window.speechSynthesis.cancel();
-        bot.textContent = '⏹️ Stopped speaking.';
-        return;
-      }
-
-      // Default echo for Milestone 1
-      speak("You said: " + text);
-    }
-
-    // -----------------------------
-    // Wire up the recognizer
-    // -----------------------------
-    let listening = false;
-
-    function startListening(){
-      if (!rec) return;
-      listening = true;
-      live.textContent = 'Mic: listening…';
-      live.classList.remove('offline');
-      live.classList.add('online');
-      toggleBtn.textContent = 'Stop Listening';
-      toggleBtn.classList.add('stop');
-      you.textContent = '';
-      rec.start();
-    }
-
-    function stopListening(){
-      if (!rec) return;
-      listening = false;
-      rec.stop();
-      live.textContent = 'Mic: idle';
-      live.classList.add('offline');
-      live.classList.remove('online');
-      toggleBtn.textContent = 'Start Listening';
-      toggleBtn.classList.remove('stop');
-    }
-
-    if (rec) {
-      rec.onresult = (event) => {
-        let finalText = '';
-        for (const res of event.results) {
-          const txt = res[0].transcript;
-          if (res.isFinal) finalText += txt + ' ';
-          you.textContent = txt; // show latest chunk live
+      rec.onresult = (event)=>{
+        let final = '';
+        for (const r of event.results){
+          const t = r[0].transcript;
+          you.textContent = t; // live
+          if (r.isFinal) final += t + ' ';
         }
-        finalText = finalText.trim();
-        if (finalText) handleUtterance(finalText);
+        final = final.trim();
+        if (final) handleUtterance(final);
       };
-
-      rec.onerror = (e) => {
-        live.textContent = 'Mic error: ' + (e.error || 'unknown');
-        live.classList.add('offline');
-        live.classList.remove('online');
-      };
-
-      rec.onend = () => {
-        // recognition ends automatically after a phrase when continuous=false
-        if (listening) {
-          // Restart to feel hands-free
-          try { rec.start(); } catch {}
-        } else {
-          stopListening();
-        }
-      };
+      rec.onend = ()=>{ if (listening) try{rec.start()}catch{} };
+    } else {
+      live.textContent = 'Mic not supported in this browser.';
+      toggleBtn.disabled = true;
     }
 
-    toggleBtn.addEventListener('click', () => {
-      if (!listening) startListening(); else { listening = false; stopListening(); }
-    });
+    toggleBtn.onclick = ()=>{
+      if (!rec) return;
+      listening = !listening;
+      if (listening){ rec.start(); live.textContent='Mic: listening…'; toggleBtn.textContent='Stop Listening'; toggleBtn.classList.add('stop'); }
+      else { rec.stop(); live.textContent='Mic: idle'; toggleBtn.textContent='Start Listening'; toggleBtn.classList.remove('stop'); }
+    };
 
-    // Small UX: stop TTS when user clicks anywhere on bot area
-    bot.addEventListener('click', () => window.speechSynthesis.cancel());
+    // ---------- NLU (very simple rules) ----------
+    function handleUtterance(raw){
+      const text = raw.toLowerCase();
+      // help
+      if (/what can you do|help/.test(text)){
+        speak('I can find broadband, SD-WAN, routers, switches, IoT and security products, filter by price, and add items to your cart.');
+        return;
+      }
+      // show cart
+      if (/what'?s in my cart|show cart|cart/.test(text)){
+        if (CART.length===0) speak('Your cart is empty.');
+        else speak(`You have ${CART.length} item${CART.length>1?'s':''} in your cart. Total ${CART.reduce((s,p)=>s+p.price,0)} rupees.`);
+        return;
+      }
+      // add by ordinal: "add the second"
+      const ord = text.match(/add the (\d+)(st|nd|rd|th)?/);
+      if (ord){
+        const i = parseInt(ord[1],10)-1;
+        if (RESULTS[i]) addToCart(RESULTS[i]); else speak('I could not find that item number on the page.');
+        return;
+      }
+      if (/add .* to cart/.test(text)){
+        // naive: add first visible result
+        if (RESULTS[0]) addToCart(RESULTS[0]); else speak('No results to add.');
+        return;
+      }
+      // search category & price: "find routers under 3000", "show sd-wan", "find broadband 300 mbps", etc.
+      if (/find|show|look for/.test(text)){
+        const category = /(broadband|sd[\s-]?wan|router[s]?|switch(?:es)?|iot|security)/.exec(text)?.[1]?.replace(/\s|-/g,'') || null;
+        const priceCap = /under (\d{3,6})/.exec(text)?.[1] ? parseInt(/under (\d{3,6})/.exec(text)[1],10) : null;
+        const speed = /(\d{2,4})\s?mbps/.exec(text)?.[1] ? parseInt(/(\d{2,4})\s?mbps/.exec(text)[1],10) : null;
+        const brand = /(orangetel|orangebiz|orangesecure|netbee|switchly|sensehub)/.exec(text)?.[1] || null;
+
+        let list = PRODUCTS.slice();
+
+        if (category){
+          const normCat = category.replace('sdwan','sdwan').replace('routers','router').replace('switches','switch');
+          list = list.filter(p=>p.category===normCat);
+        }
+        if (priceCap) list = list.filter(p=> p.price <= priceCap);
+        if (speed) list = list.filter(p=> p.speed_mbps && p.speed_mbps >= speed);
+        if (brand) list = list.filter(p=> p.brand.toLowerCase()===brand);
+
+        if (list.length===0){ speak('No matching products found.'); resultsEl.innerHTML=''; countEl.textContent='0 items'; return; }
+
+        RESULTS = list;
+        renderResults(list);
+        // short spoken summary
+        const first = list[0];
+        let summary = `${list.length} result${list.length>1?'s':''}`;
+        if (category) summary += ` for ${category}`;
+        if (priceCap) summary += ` under ${priceCap} rupees`;
+        if (speed) summary += ` at ${speed} megabits per second or more`;
+        speak(`${summary}. First is ${first.title} at ₹${first.price}.`);
+        return;
+      }
+
+      // stop speaking
+      if (/stop|be quiet|silence/.test(text)){
+        window.speechSynthesis.cancel(); bot.textContent='⏹️ Stopped speaking.'; return;
+      }
+
+      // default
+      speak('Try: find broadband under one thousand; show SD-WAN; add the second to cart; what’s in my cart.');
+    }
+
+    // ---------- Init ----------
+    loadProducts();
   </script>
 </body>
 </html>
